@@ -1,14 +1,26 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import type { Coche } from '../../../../packages/shared/types';
-import BusMap, { type MapBus } from '../components/BusMap';
+import BusMap, { type MapBus, type MapPath } from '../components/BusMap';
+import urbanoLinesData from '../data/urbano-lines.json';
+
+type UrbanoLine = { id: string; number: string; name: string; paths: MapPath[] };
+const URBANO_LINES = urbanoLinesData as UrbanoLine[];
+// Números únicos de línea (13 y 42 tienen dos variantes)
+const LINE_NUMBERS = Array.from(new Set(URBANO_LINES.map(l => l.number)))
+  .sort((a, b) => parseInt(a) - parseInt(b));
+const PALETTE = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00897b', '#6d4c41', '#d81b60', '#3949ab', '#7cb342', '#f4511e', '#546e7a'];
+const lineColor = (n: string) => PALETTE[LINE_NUMBERS.indexOf(n) % PALETTE.length] ?? '#e53935';
+
+const API_BASE = process.env.NEXT_PUBLIC_URBANO_API_BASE;
+const INSPECTOR_TOKEN = process.env.NEXT_PUBLIC_URBANO_INSPECTOR_TOKEN ?? '';
 
 // Mock data for demo - en producción vendría de API
 const MOCK_COCHES: Coche[] = [
   {
     id: '101',
-    linea: 'A',
+    linea: '1',
     lastPing: {
       lat: -24.1858,
       lng: -65.2995,
@@ -20,7 +32,7 @@ const MOCK_COCHES: Coche[] = [
   },
   {
     id: '102',
-    linea: 'B',
+    linea: '7',
     lastPing: {
       lat: -24.1920,
       lng: -65.3050,
@@ -32,7 +44,7 @@ const MOCK_COCHES: Coche[] = [
   },
   {
     id: '103',
-    linea: 'A',
+    linea: '14',
     lastPing: null,
     visibleEnColejuy: false,
     chofer: 'Pedro Rodríguez',
@@ -53,12 +65,47 @@ function tiempoDesde(timestamp: string): string {
 export default function InspectorPage() {
   const [coches, setCoches] = useState<Coche[]>(MOCK_COCHES);
   const [vistaActual, setVistaActual] = useState<'lista' | 'mapa'>('lista');
-  const [filtroLinea, setFiltroLinea] = useState<string>('todas');
+  const [visibles, setVisibles] = useState<Set<string>>(() => new Set(LINE_NUMBERS));
+  const [apiError, setApiError] = useState<string | null>(null);
 
-  const lineas = Array.from(new Set(coches.map(c => c.linea))).sort();
-  const cochesFiltrados = filtroLinea === 'todas'
-    ? coches
-    : coches.filter(c => c.linea === filtroLinea);
+  // Si hay API configurada, poll de la flota real; si no, mock offline.
+  useEffect(() => {
+    if (!API_BASE) return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/urbano/fleet?mode=inspector`, {
+          headers: INSPECTOR_TOKEN ? { Authorization: `Bearer ${INSPECTOR_TOKEN}` } : {},
+          cache: 'no-store',
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (alive && Array.isArray(data.coches)) {
+          setCoches(data.coches.map((c: Coche) => ({ ...c, disponible: c.disponible ?? true, linea: String(c.linea) })));
+          setApiError(null);
+        }
+      } catch (e) {
+        if (alive) setApiError(e instanceof Error ? e.message : 'error');
+      }
+    };
+    load();
+    const t = setInterval(load, 10000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  const toggleLinea = (n: string) => setVisibles(prev => {
+    const next = new Set(prev);
+    if (next.has(n)) next.delete(n); else next.add(n);
+    return next;
+  });
+
+  const cochesFiltrados = coches.filter(c => visibles.has(c.linea));
+  const cochesPorLinea = (n: string) => coches.filter(c => c.linea === n).length;
+
+  const mapPaths = useMemo<MapPath[]>(() =>
+    URBANO_LINES.filter(l => visibles.has(l.number)).flatMap(l =>
+      l.paths.map(p => ({ direction: p.direction, coordinates: p.coordinates, color: lineColor(l.number) }))),
+  [visibles]);
 
   const toggleVisibilidad = (cocheId: string) => {
     setCoches(prev => prev.map(c =>
@@ -89,18 +136,9 @@ export default function InspectorPage() {
       {/* Controls */}
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="bg-white rounded-lg shadow p-4 mb-6 flex flex-wrap gap-4 items-center justify-between">
-          <div className="flex gap-4 items-center">
-            <label className="font-medium">Línea:</label>
-            <select
-              value={filtroLinea}
-              onChange={(e) => setFiltroLinea(e.target.value)}
-              className="border border-gray-300 rounded px-3 py-2"
-            >
-              <option value="todas">Todas</option>
-              {lineas.map(l => (
-                <option key={l} value={l}>Línea {l}</option>
-              ))}
-            </select>
+          <div className="text-sm text-gray-600">
+            {cochesFiltrados.length} de {coches.length} coches · {visibles.size} de {LINE_NUMBERS.length} líneas
+            {API_BASE ? (apiError ? <span className="text-amber-600"> · API: {apiError}</span> : <span className="text-green-600"> · en vivo</span>) : <span> · demo (mock)</span>}
           </div>
 
           <div className="flex gap-2">
@@ -124,6 +162,38 @@ export default function InspectorPage() {
             >
               Mapa
             </button>
+          </div>
+        </div>
+
+        {/* Panel de Líneas */}
+        <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-bold text-lg">Líneas</h2>
+            <div className="flex gap-2">
+              <button onClick={() => setVisibles(new Set(LINE_NUMBERS))} className="px-3 py-1 rounded text-sm font-medium bg-urbano-red text-white">Todas</button>
+              <button onClick={() => setVisibles(new Set())} className="px-3 py-1 rounded text-sm font-medium bg-gray-200 text-gray-700 hover:bg-gray-300">Ninguna</button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {LINE_NUMBERS.map(n => {
+              const on = visibles.has(n);
+              const nombres = URBANO_LINES.filter(l => l.number === n).map(l => l.name).join(' / ');
+              return (
+                <button
+                  key={n}
+                  title={nombres}
+                  aria-pressed={on}
+                  onClick={() => toggleLinea(n)}
+                  className={`px-3 py-2 rounded-full text-sm font-medium transition flex items-center gap-2 ${
+                    on ? 'bg-urbano-red text-white' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                  }`}
+                >
+                  <span className="inline-block w-3 h-3 rounded-full border border-white" style={{ background: on ? lineColor(n) : '#9e9e9e' }} />
+                  Línea {n}
+                  <span className={`text-xs ${on ? 'text-red-100' : 'text-gray-400'}`}>({cochesPorLinea(n)})</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -158,7 +228,10 @@ export default function InspectorPage() {
                       onChange={(e) => asignarLinea(coche.id, e.target.value)}
                       className="w-full border border-gray-300 rounded px-3 py-2"
                     >
-                      {lineas.map(l => (
+                      {!LINE_NUMBERS.includes(coche.linea) && (
+                        <option value={coche.linea}>Línea {coche.linea} (fuera de catálogo)</option>
+                      )}
+                      {LINE_NUMBERS.map(l => (
                         <option key={l} value={l}>Línea {l}</option>
                       ))}
                     </select>
@@ -214,8 +287,8 @@ export default function InspectorPage() {
                     line: c.linea,
                     lng: c.lastPing!.lng,
                     lat: c.lastPing!.lat,
-                    label: `${c.id}`,
-                    color: '#e53935',
+                    label: (c as Coche & { patente?: string }).patente ?? `${c.id}`,
+                    color: lineColor(c.linea),
                     text: '#ffffff',
                     fresh: (Date.now() - new Date(c.lastPing!.timestamp).getTime()) < 120000,
                     speed: 0,
@@ -224,7 +297,7 @@ export default function InspectorPage() {
                     age: (Date.now() - new Date(c.lastPing!.timestamp).getTime()) / 1000,
                   }))
                 }
-                paths={[]}
+                paths={mapPaths}
                 activeDirection={null}
                 color="#e53935"
                 stops={[]}
@@ -235,7 +308,7 @@ export default function InspectorPage() {
                 followBusId={null}
                 onUnfollow={() => {}}
                 pins={[]}
-                fitKey="inspector"
+                fitKey={`inspector-${Array.from(visibles).join(",")}`}
                 frame={[]}
                 focus={null}
                 routes={[]}
