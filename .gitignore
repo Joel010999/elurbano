@@ -10,3 +10,5 @@ dist
 apps/*/.next
 **/node_modules
 package-lock.json
+.env*
+apps/driver/.env

@@ -34,3 +34,16 @@ npm run inspector    # Next.js inspector
 ```
 
 Ver `docs/SCOPE.md` y `docs/design.md`.
+
+## Prueba GPS (API en Vercel)
+
+```bash
+# API smoke contra prod
+BASE_URL=https://colejuy-urbano.vercel.app npm run test:api
+
+# Chofer (desde apps/driver)
+cp .env.example .env   # ya apunta a https://colejuy-urbano.vercel.app
+npx expo start
+```
+
+Tokens de prueba: `chofer-token-example` / `inspector-token-example`.
