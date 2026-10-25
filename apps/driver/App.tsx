@@ -56,8 +56,13 @@ async function enviarPingAlServidor(gpsData: PingData) {
 
     const contexto: TurnoContext = JSON.parse(contextStr);
 
-    // TODO: Reemplazar con URL de API real
-    const API_URL = 'https://api.elurbano.com/api/urbano/ping';
+    // EXPO_PUBLIC_URBANO_API_BASE = tunnel o host local (sin slash final)
+    const API_BASE = (process.env.EXPO_PUBLIC_URBANO_API_BASE || '').replace(/\/$/, '');
+    if (!API_BASE) {
+      console.error('Falta EXPO_PUBLIC_URBANO_API_BASE');
+      throw new Error('API base no configurada');
+    }
+    const API_URL = `${API_BASE}/api/urbano/ping`;
 
     const response = await fetch(API_URL, {
       method: 'POST',
@@ -72,6 +77,8 @@ async function enviarPingAlServidor(gpsData: PingData) {
         lng: gpsData.lng,
         timestamp: gpsData.timestamp,
         accuracy: gpsData.accuracy,
+        choferToken: contexto.choferToken,
+        linea: contexto.linea,
       }),
     });
 

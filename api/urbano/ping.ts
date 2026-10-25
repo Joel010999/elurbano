@@ -10,14 +10,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const payload = req.body as PingPayload;
+    const bearer = typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')
+      ? req.headers.authorization.slice(7).trim()
+      : '';
+    const choferToken = payload.choferToken || bearer;
 
     // Validate required fields
-    if (!payload.cocheId || !payload.lat || !payload.lng || !payload.timestamp || !payload.choferToken) {
+    if (!payload.cocheId || !payload.lat || !payload.lng || !payload.timestamp || !choferToken) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Validate chofer token
-    if (!validateChoferToken(payload.choferToken)) {
+    // Validate chofer token (body or Authorization Bearer)
+    if (!validateChoferToken(choferToken)) {
       return res.status(401).json({ error: 'Invalid chofer token' });
     }
 
@@ -26,7 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       lat: payload.lat,
       lng: payload.lng,
       timestamp: payload.timestamp,
-      chofer: payload.choferToken.substring(0, 8), // Store partial token as chofer ID
+      chofer: choferToken.substring(0, 8), // Store partial token as chofer ID
     });
 
     return res.status(200).json({ success: true, message: 'Ping saved' });

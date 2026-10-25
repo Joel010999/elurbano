@@ -2,13 +2,13 @@
   "name": "colejuy-urbano",
   "version": "1.0.0",
   "private": true,
-  "description": "El Urbano — chofer GPS, inspector y API de flota",
+  "description": "El Urbano \u2014 chofer GPS, inspector y API de flota",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "dev:api": "vercel dev",
+    "dev:api": "node scripts/local-server.mjs",
     "test:api": "node scripts/smoke.js",
     "type-check:api": "tsc --noEmit",
     "driver": "npm run start --workspace=apps/driver",
