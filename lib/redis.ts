@@ -1,7 +1,9 @@
 import type { CocheData } from './types';
 
-// In-memory fallback storage
-const inMemoryStore = new Map<string, Record<string, string>>();
+// In-memory fallback (survives warm Vercel isolates — ok for short GPS tests)
+const g = globalThis as typeof globalThis & { __urbanoStore?: Map<string, Record<string, string>> };
+if (!g.__urbanoStore) g.__urbanoStore = new Map();
+const inMemoryStore = g.__urbanoStore;
 
 interface RedisClient {
   hset(key: string, data: Record<string, string>): Promise<void>;
