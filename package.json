@@ -1,18 +1,25 @@
 {
-  "name": "urbano-api",
+  "name": "colejuy-urbano",
   "version": "1.0.0",
-  "description": "El Urbano - Fleet tracking API",
+  "private": true,
+  "description": "El Urbano — chofer GPS, inspector y API de flota",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "vercel dev",
-    "test": "node scripts/smoke.js",
-    "type-check": "tsc --noEmit"
+    "dev:api": "vercel dev",
+    "test:api": "node scripts/smoke.js",
+    "type-check:api": "tsc --noEmit",
+    "driver": "npm run start --workspace=apps/driver",
+    "inspector": "npm run dev --workspace=apps/inspector"
   },
   "dependencies": {
     "@vercel/node": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "typescript": "^5.0.0",
+    "typescript": "^5.3.3",
     "vercel": "^33.0.0"
   }
 }
