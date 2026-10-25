@@ -1,137 +1,124 @@
-// Simplified geo utilities for El Urbano
-// Based on ColeJUY's geo.ts
-
 export type LngLat = [number, number];
 
-const R = 6371000; // Earth radius in meters
+const R = 6371000;
 const rad = (d: number) => (d * Math.PI) / 180;
-const deg = (r: number) => (r * 180) / Math.PI;
 
 export function distance(a: LngLat, b: LngLat): number {
-  const φ1 = rad(a[1]);
-  const φ2 = rad(b[1]);
-  const Δφ = rad(b[1] - a[1]);
-  const Δλ = rad(b[0] - a[0]);
-
-  const sinHalf = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) *
-    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(sinHalf), Math.sqrt(1 - sinHalf));
-
-  return R * c;
+  const dLat = rad(b[1] - a[1]);
+  const dLng = rad(b[0] - a[0]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-export function pathLength(coords: LngLat[], refLat = 0): number {
-  let sum = 0;
-  for (let i = 1; i < coords.length; i++) {
-    sum += distance(coords[i - 1], coords[i]);
-  }
-  return sum;
-}
+export type Located = {
+  // Metres from the start of the path to the closest point on it.
+  along: number;
+  // Metres between the point and the path.
+  offset: number;
+  // Compass bearing of the path at that point, in degrees.
+  bearing: number;
+  // Which segment of the path the closest point is on, and how far along that segment (0 to 1).
+  index: number;
+  t: number;
+};
 
-export function pointAlong(coords: LngLat[], meters: number, refLat = 0): LngLat | null {
-  if (coords.length === 0) return null;
-  if (meters <= 0) return coords[0];
-
-  let traveled = 0;
-  for (let i = 1; i < coords.length; i++) {
-    const seg = distance(coords[i - 1], coords[i]);
-    if (traveled + seg >= meters) {
-      const t = (meters - traveled) / seg;
-      const a = coords[i - 1];
-      const b = coords[i];
-      return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+// Closest point of a path to p, on a flat projection that is accurate enough at city scale.
+export function locate(path: LngLat[], p: LngLat): Located | null {
+  if (path.length < 2) return null;
+  const kx = R * rad(1) * Math.cos(rad(p[1]));
+  const ky = R * rad(1);
+  const px = p[0] * kx;
+  const py = p[1] * ky;
+  let best: Located | null = null;
+  let walked = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const ax = path[i][0] * kx;
+    const ay = path[i][1] * ky;
+    const dx = path[i + 1][0] * kx - ax;
+    const dy = path[i + 1][1] * ky - ay;
+    const len = Math.hypot(dx, dy);
+    if (len === 0) continue;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (len * len)));
+    const offset = Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+    if (!best || offset < best.offset) {
+      best = { along: walked + len * t, offset, bearing: (Math.atan2(dx, dy) * 180) / Math.PI, index: i, t };
     }
-    traveled += seg;
+    walked += len;
   }
-  return coords[coords.length - 1];
-}
-
-export function bearingAlong(coords: LngLat[], meters: number, refLat = 0): number | null {
-  if (coords.length < 2) return null;
-
-  let traveled = 0;
-  for (let i = 1; i < coords.length; i++) {
-    const seg = distance(coords[i - 1], coords[i]);
-    if (traveled + seg >= meters) {
-      const a = coords[i - 1];
-      const b = coords[i];
-      const φ1 = rad(a[1]);
-      const φ2 = rad(b[1]);
-      const Δλ = rad(b[0] - a[0]);
-
-      const y = Math.sin(Δλ) * Math.cos(φ2);
-      const x = Math.cos(φ1) * Math.sin(φ2) -
-                Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-      const θ = Math.atan2(y, x);
-
-      return (deg(θ) + 360) % 360;
-    }
-    traveled += seg;
-  }
-
-  if (coords.length >= 2) {
-    const a = coords[coords.length - 2];
-    const b = coords[coords.length - 1];
-    const φ1 = rad(a[1]);
-    const φ2 = rad(b[1]);
-    const Δλ = rad(b[0] - a[0]);
-
-    const y = Math.sin(Δλ) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) -
-              Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-    const θ = Math.atan2(y, x);
-
-    return (deg(θ) + 360) % 360;
-  }
-
-  return null;
-}
-
-export function locate(
-  path: LngLat[],
-  point: LngLat
-): { along: number; offset: number; bearing: number } | null {
-  if (path.length === 0) return null;
-
-  let bestDist = Infinity;
-  let bestAlong = 0;
-  let bestBearing = 0;
-  let traveled = 0;
-
-  for (let i = 1; i < path.length; i++) {
-    const a = path[i - 1];
-    const b = path[i];
-    const segLen = distance(a, b);
-
-    // Find closest point on segment
-    const φ1 = rad(a[1]);
-    const φ2 = rad(b[1]);
-    const Δλ = rad(b[0] - a[0]);
-
-    const y = Math.sin(Δλ) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) -
-              Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-    const bearing = (deg(Math.atan2(y, x)) + 360) % 360;
-
-    for (let t = 0; t <= 1; t += 0.1) {
-      const sample: LngLat = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-      const d = distance(point, sample);
-      if (d < bestDist) {
-        bestDist = d;
-        bestAlong = traveled + segLen * t;
-        bestBearing = bearing;
-      }
-    }
-
-    traveled += segLen;
-  }
-
-  return { along: bestAlong, offset: bestDist, bearing: bestBearing };
+  return best;
 }
 
 export function angleBetween(a: number, b: number): number {
-  const d = ((b - a + 540) % 360) - 180;
-  return Math.abs(d);
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+// A point `along` metres from the start of a path, in the same flat metres `locate` uses.
+// `along` past either end clamps to that end, so a projection cannot leave the route.
+export function pointAlong(path: LngLat[], along: number, refLat: number): LngLat | null {
+  if (path.length === 0) return null;
+  if (path.length === 1 || along <= 0) return path[0];
+  const kx = R * rad(1) * Math.cos(rad(refLat));
+  const ky = R * rad(1);
+  let walked = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const dx = (path[i + 1][0] - path[i][0]) * kx;
+    const dy = (path[i + 1][1] - path[i][1]) * ky;
+    const len = Math.hypot(dx, dy);
+    if (len === 0) continue;
+    if (walked + len >= along) {
+      const t = (along - walked) / len;
+      return [path[i][0] + (path[i + 1][0] - path[i][0]) * t, path[i][1] + (path[i + 1][1] - path[i][1]) * t];
+    }
+    walked += len;
+  }
+  return path[path.length - 1];
+}
+
+// Compass bearing of the segment that contains `along`, in the path's own direction.
+export function bearingAlong(path: LngLat[], along: number, refLat: number): number | null {
+  if (path.length < 2) return null;
+  const kx = R * rad(1) * Math.cos(rad(refLat));
+  const ky = R * rad(1);
+  let walked = 0;
+  let last: number | null = null;
+  for (let i = 0; i < path.length - 1; i++) {
+    const dx = (path[i + 1][0] - path[i][0]) * kx;
+    const dy = (path[i + 1][1] - path[i][1]) * ky;
+    const len = Math.hypot(dx, dy);
+    if (len === 0) continue;
+    last = (Math.atan2(dx, dy) * 180) / Math.PI;
+    if (walked + len >= Math.max(0, along)) return last;
+    walked += len;
+  }
+  return last;
+}
+
+export function pathLength(path: LngLat[], refLat: number): number {
+  if (path.length < 2) return 0;
+  const kx = R * rad(1) * Math.cos(rad(refLat));
+  const ky = R * rad(1);
+  let walked = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const dx = (path[i + 1][0] - path[i][0]) * kx;
+    const dy = (path[i + 1][1] - path[i][1]) * ky;
+    const len = Math.hypot(dx, dy);
+    if (len === 0) continue;
+    walked += len;
+  }
+  return walked;
+}
+
+// The stretch of a path between two points near it, in the path's own direction.
+// When the second point is not further along than the first, the two are joined directly.
+export function slice(path: LngLat[], from: LngLat, to: LngLat): LngLat[] {
+  const a = locate(path, from);
+  const b = locate(path, to);
+  if (!a || !b || b.along <= a.along) return [from, to];
+  const at = (l: Located): LngLat => {
+    const p = path[l.index];
+    const q = path[l.index + 1];
+    return [p[0] + (q[0] - p[0]) * l.t, p[1] + (q[1] - p[1]) * l.t];
+  };
+  return [at(a), ...path.slice(a.index + 1, b.index + 1), at(b)];
 }
