@@ -164,7 +164,7 @@ export default function App() {
       const turnoContext: TurnoContext = {
         cocheId: cocheNumero,
         turnoId: `turno_${Date.now()}`,
-        choferToken: 'demo_token_123', // TODO: Obtener token real
+        choferToken: process.env.EXPO_PUBLIC_URBANO_CHOFER_TOKEN || 'chofer-token-example',
         linea: linea,
       };
 

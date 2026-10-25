@@ -88,8 +88,8 @@ let redisClient: RedisClient | null = null;
 export function getRedisClient(): RedisClient {
   if (redisClient) return redisClient;
 
-  const upstashUrl = process.env.UPSTASH_REDIS_REST_URL;
-  const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const upstashUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 
   if (upstashUrl && upstashToken) {
     console.log('Using Upstash Redis');

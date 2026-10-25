@@ -11,17 +11,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { id } = req.query;
     const payload = req.body as LineaPayload;
+    const bearer = typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')
+      ? req.headers.authorization.slice(7).trim()
+      : '';
+    const inspectorToken = (payload as any).inspectorToken || bearer;
 
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'Invalid coche ID' });
     }
 
-    if (!payload.linea || !payload.inspectorToken) {
+    if (!payload.linea || !inspectorToken) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     // Validate inspector token
-    if (!validateInspectorToken(payload.inspectorToken)) {
+    if (!validateInspectorToken(inspectorToken)) {
       return res.status(401).json({ error: 'Invalid inspector token' });
     }
 
