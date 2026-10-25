@@ -12,3 +12,4 @@ apps/*/.next
 package-lock.json
 .env*
 apps/driver/.env
+*.tsbuildinfo
