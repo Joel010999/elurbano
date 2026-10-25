@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "El Urbano - Chofer",
+    "slug": "urbano-driver",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#e53935"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["location"],
+        "NSLocationWhenInUseUsageDescription": "El Urbano necesita tu ubicación para rastrear el recorrido del colectivo",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "El Urbano necesita tu ubicación incluso en segundo plano para el seguimiento continuo del servicio"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#e53935"
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "El Urbano necesita tu ubicación para rastrear el recorrido del colectivo.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "urbano-apps",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "driver": "cd apps/driver && npm start",
+    "inspector": "cd apps/inspector && npm run dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
