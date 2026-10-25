@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import type { Coche } from '../../../packages/shared/types';
+import type { Coche } from '../../../../packages/shared/types';
+import BusMap, { type MapBus } from '../components/BusMap';
 
 // Mock data for demo - en producción vendría de API
 const MOCK_COCHES: Coche[] = [
@@ -202,33 +203,48 @@ export default function InspectorPage() {
 
         {/* Mapa View */}
         {vistaActual === 'mapa' && (
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="h-[600px] flex items-center justify-center bg-gray-100 rounded">
-              <div className="text-center">
-                <div className="text-6xl mb-4">🗺️</div>
-                <p className="text-xl font-medium text-gray-700 mb-2">
-                  Mapa en Tiempo Real
-                </p>
-                <p className="text-gray-500 max-w-md">
-                  El mapa reutiliza los componentes visuales de ColeJUY (BusMap.tsx).
-                  Para ver el mapa funcionando, integra MapLibre GL con los componentes
-                  copiados de /workspace/colejuy/src/components/BusMap.tsx
-                </p>
-                <div className="mt-6 text-left bg-white p-4 rounded border border-gray-200 max-w-md mx-auto">
-                  <p className="font-bold text-urbano-red mb-2">Coches activos:</p>
-                  <ul className="space-y-1 text-sm">
-                    {cochesFiltrados
-                      .filter(c => c.lastPing)
-                      .map(c => (
-                        <li key={c.id} className="flex items-center gap-2">
-                          <span className="w-2 h-2 bg-urbano-red rounded-full"></span>
-                          <span>Coche {c.id} - Línea {c.linea}</span>
-                          {c.visibleEnColejuy && <span className="text-xs">👁️</span>}
-                        </li>
-                      ))}
-                  </ul>
-                </div>
-              </div>
+          <div className="bg-white rounded-lg shadow-md overflow-hidden">
+            <div className="h-[600px]">
+              <BusMap
+                theme="light"
+                buses={cochesFiltrados
+                  .filter(c => c.lastPing)
+                  .map((c): MapBus => ({
+                    id: parseInt(c.id),
+                    line: c.linea,
+                    lng: c.lastPing!.lng,
+                    lat: c.lastPing!.lat,
+                    label: `${c.id}`,
+                    color: '#e53935',
+                    text: '#ffffff',
+                    fresh: (Date.now() - new Date(c.lastPing!.timestamp).getTime()) < 120000,
+                    speed: 0,
+                    course: null,
+                    moving: false,
+                    age: (Date.now() - new Date(c.lastPing!.timestamp).getTime()) / 1000,
+                  }))
+                }
+                paths={[]}
+                activeDirection={null}
+                color="#e53935"
+                stops={[]}
+                selectedStop={null}
+                subePoints={[]}
+                selectedSube={null}
+                me={null}
+                followBusId={null}
+                onUnfollow={() => {}}
+                pins={[]}
+                fitKey="inspector"
+                frame={[]}
+                focus={null}
+                routes={[]}
+                legend={false}
+                onBus={(id) => console.log('Bus clicked:', id)}
+                onStop={(id) => console.log('Stop clicked:', id)}
+                onSube={(id) => console.log('SUBE clicked:', id)}
+                onMap={(point) => console.log('Map clicked:', point)}
+              />
             </div>
           </div>
         )}
