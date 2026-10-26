@@ -5,6 +5,8 @@
  */
 import http from 'node:http';
 import { URL } from 'node:url';
+import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,13 +27,19 @@ const CHOFER = process.env.URBANO_CHOFER_TOKEN || 'chofer-token-example';
 const INSPECTOR = process.env.URBANO_INSPECTOR_TOKEN || 'inspector-token-example';
 const PORT = Number(process.env.PORT || 3000);
 
+execSync('node_modules/.bin/tsc --outDir dist --pretty false', { cwd: root, stdio: 'inherit' });
+const require = createRequire(import.meta.url);
+const usuarios = require(resolve(root, 'dist/lib/usuarios.js'));
+const colectivosLib = require(resolve(root, 'dist/lib/colectivos.js'));
+const { ErrorApi } = require(resolve(root, 'dist/lib/auth.js'));
+
 /** @type {Map<string, Record<string, string>>} */
 const store = new Map();
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Identificador');
 }
 
 function json(res, status, body) {
@@ -142,6 +150,68 @@ const server = http.createServer(async (req, res) => {
       if (!prev) return json(res, 404, { error: 'Coche not found' });
       store.set(id, { ...prev, visibleEnColejuy: body.visibleEnColejuy ? 'true' : 'false' });
       return json(res, 200, { success: true });
+    }
+
+    if (req.method === 'POST' && path === '/api/urbano/auth/login') {
+      const body = await readBody(req);
+      try {
+        const sesion = await usuarios.loginConClave(body.usuario ?? body.identificador, body.clave);
+        return json(res, 200, sesion);
+      } catch (error) {
+        if (error instanceof ErrorApi) return json(res, error.status, { error: error.message });
+        throw error;
+      }
+    }
+
+    if (req.method === 'POST' && path === '/api/urbano/auth/google') {
+      const body = await readBody(req);
+      try {
+        const sesion = await usuarios.loginConGoogle(body.idToken);
+        return json(res, 200, sesion);
+      } catch (error) {
+        if (error instanceof ErrorApi) return json(res, error.status, { error: error.message });
+        throw error;
+      }
+    }
+
+    if (path === '/api/urbano/colectivos' && (req.method === 'GET' || req.method === 'POST')) {
+      const usuario = await usuarios.usuarioDesdeAutorizacion(req.headers.authorization, req.headers['x-identificador']);
+      if (!usuario) return json(res, 401, { error: 'No autorizado' });
+      try {
+        if (req.method === 'GET') {
+          const colectivos = await colectivosLib.listarColectivos(usuario.rol);
+          return json(res, 200, { colectivos });
+        }
+        if (!colectivosLib.puedeEscribirColectivos(usuario.rol)) {
+          return json(res, 403, { error: 'No tiene permiso para modificar colectivos' });
+        }
+        const creado = await colectivosLib.crearColectivo(await readBody(req));
+        return json(res, 201, creado);
+      } catch (error) {
+        if (error instanceof ErrorApi) return json(res, error.status, { error: error.message });
+        throw error;
+      }
+    }
+
+    const colectivoMatch = path.match(/^\/api\/urbano\/colectivos\/([^/]+)$/);
+    if (colectivoMatch && (req.method === 'PATCH' || req.method === 'DELETE')) {
+      const usuario = await usuarios.usuarioDesdeAutorizacion(req.headers.authorization, req.headers['x-identificador']);
+      if (!usuario) return json(res, 401, { error: 'No autorizado' });
+      if (!colectivosLib.puedeEscribirColectivos(usuario.rol)) {
+        return json(res, 403, { error: 'No tiene permiso para modificar colectivos' });
+      }
+      const id = decodeURIComponent(colectivoMatch[1]);
+      try {
+        if (req.method === 'PATCH') {
+          const actualizado = await colectivosLib.actualizarColectivo(id, await readBody(req));
+          return json(res, 200, actualizado);
+        }
+        await colectivosLib.borrarColectivo(id);
+        return json(res, 200, { ok: true });
+      } catch (error) {
+        if (error instanceof ErrorApi) return json(res, error.status, { error: error.message });
+        throw error;
+      }
     }
 
     return json(res, 404, { error: 'Not found' });
