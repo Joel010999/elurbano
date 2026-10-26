@@ -11,6 +11,7 @@
     "dev:api": "tsc && cp lib/muni-lines.json dist/lib/ && node scripts/local-server.mjs",
     "test:api": "node scripts/check-lines.mjs && node scripts/smoke.js",
     "type-check:api": "node scripts/check-lines.mjs && tsc --noEmit",
+    "type-check:driver": "npm run typecheck --workspace=@urbano/driver",
     "build:web": "NEXT_PUBLIC_URBANO_API_BASE=https://colejuy-urbano.vercel.app npm run build --workspace=@urbano/inspector && node scripts/publish-inspector.mjs",
     "build": "npm run build:web",
     "driver": "npm run start --workspace=apps/driver",

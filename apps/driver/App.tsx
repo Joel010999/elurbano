@@ -1,29 +1,43 @@
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import catalogoLocal from './data/muni-lines.json';
+import {
+  ApiError,
+  API_BASE,
+  type Colectivo,
+  type MuniLine,
+  type Sesion,
+  listarColectivos,
+  listarLineas,
+  loginClave,
+  loginGoogle,
+  mensajeError,
+} from './src/api';
+import { LoginScreen } from './src/LoginScreen';
+import { NumeroCoche } from './src/NumeroCoche';
+import { BRAND, INK } from './src/theme';
 
+const SESION_KEY = 'urbano:sesion';
 const TURNO_CONTEXT_KEY = 'urbano:turno_context';
 const PREFS_KEY = 'urbano:prefs';
 const PING_QUEUE_KEY = 'urbano:ping_queue';
-const API_BASE = (process.env.EXPO_PUBLIC_URBANO_API_BASE || 'https://colejuy-urbano.vercel.app').replace(/\/$/, '');
-const TOKEN_INICIAL = process.env.EXPO_PUBLIC_URBANO_CHOFER_TOKEN || 'chofer-token-example';
 const GPS_MS = 5000;
-
-type MuniLine = { id: string; number: string; name: string };
+const COCHE_ID = /^[A-Za-z0-9_-]{1,32}$/;
 
 interface PingData {
   lat: number;
@@ -34,6 +48,8 @@ interface PingData {
 
 interface TurnoContext {
   cocheId: string;
+  numero: string;
+  patente: string;
   turnoId: string;
   choferToken: string;
   linea: string;
@@ -41,7 +57,50 @@ interface TurnoContext {
   disponible: boolean;
 }
 
+interface Prefs {
+  cocheId?: string;
+  lineaId?: string;
+  disponible?: boolean;
+}
+
 const CATALOGO_INICIAL = catalogoLocal as MuniLine[];
+
+function aSesionGuardada(raw: string | null): Sesion | null {
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw) as Partial<Sesion>;
+    if (!data || data.rol !== 'chofer' || typeof data.token !== 'string' || !data.token.trim()) return null;
+    return {
+      token: data.token.trim(),
+      id: typeof data.id === 'string' ? data.id : '',
+      identificador: typeof data.identificador === 'string' ? data.identificador : 'chofer',
+      rol: 'chofer',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function aTurno(raw: string | null): TurnoContext | null {
+  if (!raw) return null;
+  try {
+    const data = JSON.parse(raw) as Partial<TurnoContext>;
+    if (!data || typeof data.cocheId !== 'string' || !data.cocheId) return null;
+    if (typeof data.choferToken !== 'string' || !data.choferToken) return null;
+    return {
+      cocheId: data.cocheId,
+      numero: typeof data.numero === 'string' && data.numero ? data.numero : data.cocheId,
+      patente: typeof data.patente === 'string' ? data.patente : '',
+      turnoId: typeof data.turnoId === 'string' && data.turnoId ? data.turnoId : `turno_${Date.now()}`,
+      choferToken: data.choferToken,
+      linea: typeof data.linea === 'string' ? data.linea : '',
+      lineaId: typeof data.lineaId === 'string' && data.lineaId ? data.lineaId : (data.linea || ''),
+      disponible: data.disponible !== false,
+    };
+  } catch {
+    return null;
+  }
+}
 
 async function encolarPingFallido(ping: PingData) {
   try {
@@ -55,12 +114,21 @@ async function encolarPingFallido(ping: PingData) {
 }
 
 export default function App() {
+  const [listo, setListo] = useState(false);
+  const [sesion, setSesion] = useState<Sesion | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
   const [lineas, setLineas] = useState<MuniLine[]>(CATALOGO_INICIAL);
+  const [colectivos, setColectivos] = useState<Colectivo[]>([]);
+  const [cargandoCoches, setCargandoCoches] = useState(false);
+  const [recargaCoches, setRecargaCoches] = useState(0);
+  const [cocheId, setCocheId] = useState('');
+  const [numero, setNumero] = useState('');
+  const [patente, setPatente] = useState('');
+  const [lineaId, setLineaId] = useState(CATALOGO_INICIAL[0]?.id ?? '');
   const [turnoActivo, setTurnoActivo] = useState(false);
   const [disponible, setDisponible] = useState(true);
-  const [cocheNumero, setCocheNumero] = useState('101');
-  const [lineaId, setLineaId] = useState(CATALOGO_INICIAL[0]?.id ?? '');
-  const [token, setToken] = useState(TOKEN_INICIAL);
   const [ultimoPing, setUltimoPing] = useState<string | null>(null);
   const [gpsActivo, setGpsActivo] = useState(false);
   const [elegirLinea, setElegirLinea] = useState(false);
@@ -70,56 +138,124 @@ export default function App() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSentRef = useRef(0);
   const ctxRef = useRef<TurnoContext | null>(null);
+  const gpsGen = useRef(0);
+  const sesionRef = useRef<Sesion | null>(null);
+  const iniciandoRef = useRef(false);
+  sesionRef.current = sesion;
 
   const linea = lineas.find((l) => l.id === lineaId) ?? lineas.find((l) => l.number === lineaId) ?? lineas[0];
+  const colectivo = colectivos.find((c) => c.id === cocheId) ?? null;
+  const numeroVisible = colectivo?.numero || numero;
+  const patenteVisible = colectivo?.patente || patente;
 
   useEffect(() => {
+    let vivo = true;
     void (async () => {
+      let retomar = false;
       try {
-        const response = await fetch(`${API_BASE}/api/urbano/lineas`);
-        const data = await response.json();
-        if (Array.isArray(data.lineas) && data.lineas.length > 0) setLineas(data.lineas);
+        const remotas = await listarLineas();
+        if (vivo && remotas) setLineas(remotas);
       } catch {
         // Queda el catálogo municipal empaquetado.
       }
-      const prefsStr = await AsyncStorage.getItem(PREFS_KEY);
-      const contextStr = await AsyncStorage.getItem(TURNO_CONTEXT_KEY);
-      if (prefsStr && !contextStr) {
-        const prefs = JSON.parse(prefsStr) as Partial<TurnoContext> & { token?: string };
-        if (prefs.cocheId) setCocheNumero(prefs.cocheId);
-        if (prefs.lineaId) setLineaId(prefs.lineaId);
-        if (prefs.token) setToken(prefs.token);
-        if (typeof prefs.disponible === 'boolean') setDisponible(prefs.disponible);
+      try {
+        const [sesionStr, contextStr, prefsStr] = await Promise.all([
+          AsyncStorage.getItem(SESION_KEY),
+          AsyncStorage.getItem(TURNO_CONTEXT_KEY),
+          AsyncStorage.getItem(PREFS_KEY),
+        ]);
+        if (!vivo) return;
+        const guardada = aSesionGuardada(sesionStr);
+        const turno = aTurno(contextStr);
+        const prefs = prefsStr ? (JSON.parse(prefsStr) as Prefs) : null;
+        const activa = guardada ?? (turno
+          ? { token: turno.choferToken, id: '', identificador: 'chofer', rol: 'chofer' as const }
+          : null);
+        if (activa) setSesion(activa);
+        if (typeof prefs?.disponible === 'boolean') setDisponible(prefs.disponible);
+        if (prefs?.lineaId) setLineaId(prefs.lineaId);
+        if (prefs?.cocheId) setCocheId(prefs.cocheId);
+        if (turno) {
+          ctxRef.current = { ...turno, choferToken: activa?.token || turno.choferToken };
+          setTurnoActivo(true);
+          setCocheId(turno.cocheId);
+          setNumero(turno.numero);
+          setPatente(turno.patente);
+          setLineaId(turno.lineaId || turno.linea);
+          setDisponible(turno.disponible);
+          retomar = true;
+        }
+      } catch (err) {
+        if (vivo) setError(mensajeError(err, 'No se pudo retomar el turno'));
+      } finally {
+        if (vivo) setListo(true);
       }
-      if (contextStr) {
-        const context = JSON.parse(contextStr) as TurnoContext;
-        ctxRef.current = context;
-        setTurnoActivo(true);
-        setCocheNumero(context.cocheId);
-        setLineaId(context.lineaId || context.linea);
-        setToken(context.choferToken);
-        setDisponible(context.disponible !== false);
+      if (!vivo || !retomar) return;
+      try {
         await arrancarGps(false);
+      } catch (err) {
+        if (!vivo) return;
+        setGpsActivo(false);
+        setError(mensajeError(err, 'No se pudo retomar el GPS'));
       }
     })();
     return () => {
+      vivo = false;
       pararReloj();
     };
     // El turno se retoma una sola vez al abrir la app.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!sesion || turnoActivo) return;
+    let vivo = true;
+    setCargandoCoches(true);
+    void listarColectivos(sesion.token)
+      .then((lista) => {
+        if (!vivo) return;
+        setColectivos(lista);
+        setCocheId((actual) => {
+          if (actual && lista.some((c) => c.id === actual)) return actual;
+          return lista.length === 1 ? lista[0].id : '';
+        });
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (!vivo) return;
+        if (err instanceof ApiError && err.status === 401) {
+          void salir();
+          setLoginError('La sesión venció. Entrá de nuevo.');
+          return;
+        }
+        setError(mensajeError(err, 'No se pudieron cargar los colectivos'));
+      })
+      .finally(() => {
+        if (vivo) setCargandoCoches(false);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [sesion, turnoActivo, recargaCoches]);
+
   function pararReloj() {
+    gpsGen.current += 1;
     watchRef.current?.remove();
     watchRef.current = null;
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
   }
 
-  async function guardarPrefs(parcial: Partial<{ cocheId: string; lineaId: string; token: string; disponible: boolean }>) {
+  async function guardarPrefs(parcial: Prefs) {
     const prev = await AsyncStorage.getItem(PREFS_KEY);
     const base = prev ? JSON.parse(prev) : {};
     await AsyncStorage.setItem(PREFS_KEY, JSON.stringify({ ...base, ...parcial }));
+  }
+
+  async function guardarSesion(valor: Sesion) {
+    await AsyncStorage.setItem(SESION_KEY, JSON.stringify(valor));
+    setSesion(valor);
+    setLoginError(null);
   }
 
   async function enviar(loc: Location.LocationObject, actualizarLinea: boolean) {
@@ -159,17 +295,19 @@ export default function App() {
       setUltimoPing(new Date().toLocaleTimeString('es-AR'));
       setError(null);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'No se pudo enviar el GPS';
-      setError(message);
+      setError(mensajeError(err, 'No se pudo enviar el GPS'));
       await encolarPingFallido(gps);
     }
   }
 
   async function arrancarGps(actualizarLinea: boolean) {
     pararReloj();
+    const token = gpsGen.current;
     const primer = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    if (gpsGen.current !== token) return;
     await enviar(primer, actualizarLinea);
-    watchRef.current = await Location.watchPositionAsync(
+    if (gpsGen.current !== token) return;
+    const sub = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.Balanced,
         timeInterval: GPS_MS,
@@ -179,6 +317,11 @@ export default function App() {
         void enviar(loc, false);
       },
     );
+    if (gpsGen.current !== token) {
+      sub.remove();
+      return;
+    }
+    watchRef.current = sub;
     timerRef.current = setInterval(() => {
       void Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
         .then((loc) => enviar(loc, false))
@@ -187,20 +330,40 @@ export default function App() {
     setGpsActivo(true);
   }
 
+  async function entrar(tarea: () => Promise<Sesion>) {
+    setOcupado(true);
+    setLoginError(null);
+    try {
+      await guardarSesion(await tarea());
+    } catch (err) {
+      setLoginError(mensajeError(err, 'No se pudo entrar'));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
   async function iniciarTurno() {
-    const cocheId = cocheNumero.trim();
-    if (!/^[A-Za-z0-9_-]{1,32}$/.test(cocheId)) {
-      Alert.alert('Coche', 'Usá letras, números o guiones.');
+    if (iniciandoRef.current) return;
+    const elegido = colectivos.find((c) => c.id === cocheId);
+    if (!elegido) {
+      Alert.alert('Coche', 'Elegí un colectivo de la lista.');
+      return;
+    }
+    if (!COCHE_ID.test(elegido.id)) {
+      Alert.alert('Coche', 'El id de este colectivo no entra en el ping (máximo 32).');
       return;
     }
     if (!linea) {
       Alert.alert('Línea', 'Elegí una línea del catálogo.');
       return;
     }
-    if (token.trim().length < 8) {
-      Alert.alert('Token', 'El token de chofer es muy corto.');
+    const token = sesionRef.current?.token;
+    if (!token) {
+      setLoginError('Entrá de nuevo para iniciar el turno.');
+      setSesion(null);
       return;
     }
+    iniciandoRef.current = true;
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
@@ -208,22 +371,33 @@ export default function App() {
         return;
       }
       const ctx: TurnoContext = {
-        cocheId,
+        cocheId: elegido.id,
+        numero: elegido.numero,
+        patente: elegido.patente,
         turnoId: `turno_${Date.now()}`,
-        choferToken: token.trim(),
+        choferToken: token,
         linea: linea.number,
         lineaId: linea.id,
         disponible,
       };
       ctxRef.current = ctx;
-      await AsyncStorage.setItem(TURNO_CONTEXT_KEY, JSON.stringify(ctx));
-      await guardarPrefs({ cocheId, lineaId: linea.id, token: token.trim(), disponible });
       await arrancarGps(true);
+      await AsyncStorage.setItem(TURNO_CONTEXT_KEY, JSON.stringify(ctx));
+      await guardarPrefs({ cocheId: elegido.id, lineaId: linea.id, disponible });
+      setNumero(elegido.numero);
+      setPatente(elegido.patente);
       setTurnoActivo(true);
+      setGpsActivo(true);
       setError(null);
     } catch (err) {
       console.error(err);
+      pararReloj();
+      ctxRef.current = null;
+      await AsyncStorage.removeItem(TURNO_CONTEXT_KEY);
+      setGpsActivo(false);
       Alert.alert('Error', 'No se pudo iniciar el turno');
+    } finally {
+      iniciandoRef.current = false;
     }
   }
 
@@ -233,6 +407,16 @@ export default function App() {
     await AsyncStorage.removeItem(TURNO_CONTEXT_KEY);
     setTurnoActivo(false);
     setGpsActivo(false);
+    setUltimoPing(null);
+    setError(null);
+  }
+
+  async function salir() {
+    await finalizarTurno();
+    await AsyncStorage.removeItem(SESION_KEY);
+    setSesion(null);
+    setColectivos([]);
+    setError(null);
   }
 
   async function cambiarDisponible(valor: boolean) {
@@ -245,86 +429,137 @@ export default function App() {
     }
   }
 
+  function elegirColectivo(item: Colectivo) {
+    setCocheId(item.id);
+    setNumero(item.numero);
+    setPatente(item.patente);
+    void guardarPrefs({ cocheId: item.id });
+  }
+
+  if (!listo) {
+    return (
+      <View style={styles.boot}>
+        <StatusBar style="light" />
+        <View style={styles.bootLetrero}>
+          <Text style={styles.bootLetreroTxt}>EL URBANO</Text>
+        </View>
+        <Text style={styles.bootFirma}>Chofer</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
       <View style={styles.header}>
-        <Text style={styles.title}>El Urbano</Text>
-        <Text style={styles.subtitle}>Chofer</Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.label}>Coche</Text>
-        <TextInput
-          value={cocheNumero}
-          onChangeText={(v) => {
-            setCocheNumero(v);
-            if (!turnoActivo) void guardarPrefs({ cocheId: v.trim() });
-          }}
-          editable={!turnoActivo}
-          keyboardType="default"
-          style={[styles.input, turnoActivo && styles.inputOff]}
-        />
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.label}>Línea</Text>
-        <Pressable
-          disabled={turnoActivo}
-          onPress={() => setElegirLinea(true)}
-          style={[styles.input, styles.lineaBtn, turnoActivo && styles.inputOff]}
-        >
-          <Text style={styles.lineaTxt}>
-            {linea ? `${linea.number} · ${linea.name}` : 'Elegir línea'}
+        <View style={styles.headerTxt}>
+          <Text style={styles.title}>El Urbano</Text>
+          <Text style={styles.subtitle}>
+            {sesion ? `Chofer · ${sesion.identificador}` : 'Chofer'}
           </Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.label}>Token</Text>
-        <TextInput
-          value={token}
-          onChangeText={(v) => {
-            setToken(v);
-            if (!turnoActivo) void guardarPrefs({ token: v.trim() });
-          }}
-          editable={!turnoActivo}
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={[styles.input, styles.token, turnoActivo && styles.inputOff]}
-        />
-      </View>
-
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <Text style={styles.label}>Disponible</Text>
-          <Switch
-            value={disponible}
-            onValueChange={(v) => void cambiarDisponible(v)}
-            trackColor={{ false: '#ccc', true: '#e53935' }}
-            thumbColor={disponible ? '#fff' : '#f4f3f4'}
-          />
         </View>
+        {sesion ? (
+          <Pressable onPress={() => void salir()} hitSlop={8} accessibilityRole="button">
+            <Text style={styles.salir}>Salir</Text>
+          </Pressable>
+        ) : null}
       </View>
 
-      <View style={styles.statusCard}>
-        <Text style={gpsActivo ? styles.statusActive : styles.statusInactive}>
-          {gpsActivo ? 'GPS en primer plano' : 'GPS inactivo'}
-        </Text>
-        {ultimoPing && <Text style={styles.statusDetail}>Último ping: {ultimoPing}</Text>}
-        {error && <Text style={styles.error}>{error}</Text>}
-      </View>
+      {!sesion ? (
+        <LoginScreen
+          ocupado={ocupado}
+          error={loginError}
+          onClave={(usuario, clave) => void entrar(() => loginClave(usuario, clave))}
+          onGoogle={(idToken) => entrar(() => loginGoogle(idToken))}
+        />
+      ) : turnoActivo ? (
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <NumeroCoche numero={numeroVisible} patente={patenteVisible} />
+          <View style={styles.card}>
+            <Text style={styles.label}>Línea</Text>
+            <Text style={styles.valor}>{linea ? `${linea.number} · ${linea.name}` : 'Sin línea'}</Text>
+          </View>
+          <View style={styles.card}>
+            <View style={styles.row}>
+              <Text style={styles.label}>Disponible</Text>
+              <Switch
+                value={disponible}
+                onValueChange={(v) => void cambiarDisponible(v)}
+                trackColor={{ false: '#ccc', true: BRAND }}
+                thumbColor={disponible ? '#fff' : '#f4f3f4'}
+              />
+            </View>
+          </View>
+          <View style={styles.statusCard}>
+            <Text style={gpsActivo ? styles.statusActive : styles.statusInactive}>
+              {gpsActivo ? 'GPS en primer plano' : 'GPS inactivo'}
+            </Text>
+            {ultimoPing ? <Text style={styles.statusDetail}>Último ping: {ultimoPing}</Text> : null}
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+          </View>
+          <Pressable onPress={() => void finalizarTurno()} style={styles.accionOff} accessibilityRole="button">
+            <Text style={styles.accionTxt}>Finalizar turno</Text>
+          </Pressable>
+          <Text style={styles.footerText}>
+            El GPS sale cada 5 segundos mientras la app está abierta. En Expo Go no uses el rastreo de fondo.
+          </Text>
+        </ScrollView>
+      ) : (
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          <NumeroCoche numero={numeroVisible} patente={patenteVisible} />
+          <Text style={styles.bloque}>Colectivo</Text>
+          {cargandoCoches ? <ActivityIndicator color={BRAND} style={styles.carga} /> : null}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {!cargandoCoches && colectivos.length === 0 ? (
+            <View style={styles.card}>
+              <Text style={styles.vacio}>{error ? 'No se pudo leer la flota.' : 'No hay colectivos activos.'}</Text>
+              <Pressable onPress={() => setRecargaCoches((n) => n + 1)} style={styles.reintentar} accessibilityRole="button">
+                <Text style={styles.reintentarTxt}>Reintentar</Text>
+              </Pressable>
+            </View>
+          ) : (
+            colectivos.map((item) => {
+              const on = item.id === cocheId;
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => elegirColectivo(item)}
+                  style={[styles.coche, on && styles.cocheOn]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                >
+                  <NumeroCoche numero={item.numero} compacto />
+                  <View style={styles.cocheTxt}>
+                    <Text style={styles.cocheNum}>Coche {item.numero}</Text>
+                    <Text style={styles.cochePatente}>{item.patente || 'Sin patente'}</Text>
+                  </View>
+                </Pressable>
+              );
+            })
+          )}
 
-      <Pressable
-        onPress={turnoActivo ? () => void finalizarTurno() : () => void iniciarTurno()}
-        style={[styles.accion, turnoActivo ? styles.accionOff : styles.accionOn]}
-      >
-        <Text style={styles.accionTxt}>{turnoActivo ? 'Finalizar turno' : 'Iniciar turno'}</Text>
-      </Pressable>
+          <Text style={styles.bloque}>Línea</Text>
+          <Pressable onPress={() => setElegirLinea(true)} style={styles.lineaBtn} accessibilityRole="button">
+            <Text style={styles.lineaTxt}>{linea ? `${linea.number} · ${linea.name}` : 'Elegir línea'}</Text>
+          </Pressable>
 
-      <Text style={styles.footerText}>
-        El GPS sale cada 5 segundos mientras la app está abierta. En Expo Go no uses el rastreo de fondo.
-      </Text>
+          <View style={styles.card}>
+            <View style={styles.row}>
+              <Text style={styles.label}>Disponible</Text>
+              <Switch
+                value={disponible}
+                onValueChange={(v) => void cambiarDisponible(v)}
+                trackColor={{ false: '#ccc', true: BRAND }}
+                thumbColor={disponible ? '#fff' : '#f4f3f4'}
+              />
+            </View>
+          </View>
+
+          <Pressable onPress={() => void iniciarTurno()} style={styles.accionOn} accessibilityRole="button">
+            <Text style={styles.accionTxt}>Iniciar turno</Text>
+          </Pressable>
+        </ScrollView>
+      )}
 
       <Modal visible={elegirLinea} animationType="slide" onRequestClose={() => setElegirLinea(false)}>
         <View style={styles.modal}>
@@ -341,6 +576,7 @@ export default function App() {
                     void guardarPrefs({ lineaId: item.id });
                     setElegirLinea(false);
                   }}
+                  accessibilityRole="button"
                   style={[styles.lineaItem, on && styles.lineaItemOn]}
                 >
                   <Text style={[styles.lineaItemTxt, on && styles.lineaItemTxtOn]}>
@@ -360,54 +596,102 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  boot: {
+    flex: 1,
+    backgroundColor: BRAND,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  bootLetrero: {
+    alignSelf: 'stretch',
+    backgroundColor: '#f7f4f2',
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: INK,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  bootLetreroTxt: { color: '#c62828', fontWeight: '900', fontSize: 28, letterSpacing: 2 },
+  bootFirma: { color: '#fff', fontStyle: 'italic', fontWeight: '700', fontSize: 26, marginTop: 16 },
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-    padding: 20,
+    paddingHorizontal: 20,
     paddingTop: Platform.OS === 'android' ? 40 : 60,
     borderTopWidth: 8,
-    borderTopColor: '#e53935',
+    borderTopColor: BRAND,
   },
-  header: { alignItems: 'center', marginBottom: 20 },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#e53935' },
-  subtitle: { fontSize: 16, color: '#666', marginTop: 4 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  headerTxt: { flex: 1 },
+  title: { fontSize: 28, fontWeight: 'bold', color: BRAND },
+  subtitle: { fontSize: 16, color: '#666', marginTop: 2 },
+  salir: { color: BRAND, fontWeight: '700', fontSize: 16 },
+  scroll: { paddingBottom: 28 },
+  bloque: { fontSize: 14, color: '#666', marginTop: 16, marginBottom: 8 },
   card: {
     backgroundColor: 'white',
     padding: 16,
     borderRadius: 10,
-    marginBottom: 12,
+    marginTop: 12,
     borderWidth: 1,
     borderColor: '#f0d0d0',
   },
-  label: { fontSize: 14, color: '#666', marginBottom: 6 },
-  input: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#222',
+  label: { fontSize: 14, color: '#666' },
+  valor: { fontSize: 16, fontWeight: '600', color: INK, marginTop: 4 },
+  carga: { marginVertical: 12 },
+  vacio: { color: '#666', fontSize: 15 },
+  reintentar: { marginTop: 12, alignSelf: 'flex-start' },
+  reintentarTxt: { color: BRAND, fontWeight: '700' },
+  coche: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#fff',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e53935',
+    borderColor: '#f0d0d0',
+    padding: 10,
+    marginBottom: 8,
+  },
+  cocheOn: { borderColor: BRAND, borderWidth: 2, backgroundColor: '#fff5f5' },
+  cocheTxt: { flex: 1 },
+  cocheNum: { fontSize: 18, fontWeight: '800', color: INK },
+  cochePatente: { fontSize: 13, color: '#666', marginTop: 2, letterSpacing: 0.4 },
+  lineaBtn: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: BRAND,
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 14,
   },
-  inputOff: { backgroundColor: '#fafafa', color: '#666' },
-  token: { fontSize: 14, fontWeight: '500' },
-  lineaBtn: { justifyContent: 'center' },
-  lineaTxt: { fontSize: 16, fontWeight: '600', color: '#222' },
+  lineaTxt: { fontSize: 16, fontWeight: '600', color: INK },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  statusCard: { backgroundColor: 'white', padding: 16, borderRadius: 10, marginBottom: 16, alignItems: 'center' },
+  statusCard: {
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 10,
+    marginTop: 12,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
   statusActive: { fontSize: 18, fontWeight: 'bold', color: '#2e7d32' },
   statusInactive: { fontSize: 18, fontWeight: 'bold', color: '#999' },
   statusDetail: { fontSize: 12, color: '#666', marginTop: 6 },
-  error: { color: '#e53935', marginTop: 8, textAlign: 'center' },
-  accion: { borderRadius: 10, paddingVertical: 16, alignItems: 'center' },
-  accionOn: { backgroundColor: '#e53935' },
+  error: { color: BRAND, marginTop: 8, textAlign: 'center' },
+  accionOn: { backgroundColor: BRAND, borderRadius: 10, paddingVertical: 16, alignItems: 'center', marginTop: 8 },
   accionOff: { backgroundColor: '#555', borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
   accionTxt: { color: 'white', fontWeight: 'bold', fontSize: 18 },
   footerText: { fontSize: 12, color: '#777', textAlign: 'center', marginTop: 16 },
-  modal: { flex: 1, backgroundColor: '#fff', padding: 20, paddingTop: 56, borderTopWidth: 8, borderTopColor: '#e53935' },
+  modal: { flex: 1, backgroundColor: '#fff', padding: 20, paddingTop: 56, borderTopWidth: 8, borderTopColor: BRAND },
   lineaItem: { paddingVertical: 14, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  lineaItemOn: { backgroundColor: '#e53935' },
-  lineaItemTxt: { fontSize: 16, color: '#222' },
+  lineaItemOn: { backgroundColor: BRAND },
+  lineaItemTxt: { fontSize: 16, color: INK },
   lineaItemTxtOn: { color: '#fff', fontWeight: '700' },
 });

@@ -2,6 +2,7 @@
   "expo": {
     "name": "El Urbano - Chofer",
     "slug": "urbano-driver",
+    "scheme": "urbano-driver",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
