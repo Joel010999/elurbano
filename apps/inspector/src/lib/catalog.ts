@@ -27,3 +27,11 @@ export function mapBusId(id: string): number {
   const n = Math.abs(hash);
   return n || 1;
 }
+
+/** Número grande del cartel: el id si ya es numérico, si no el último grupo de dígitos. */
+export function numeroCartel(id: string): string {
+  const limpio = id.trim();
+  if (/^\d+$/.test(limpio)) return limpio;
+  const grupos = limpio.match(/\d+/g);
+  return grupos?.length ? grupos[grupos.length - 1] : limpio;
+}
