@@ -6,8 +6,8 @@ Chofer GPS (Expo) + panel inspector + API de flota. Rojo `#e53935`. El mapa reus
 
 1. Inspector y veedor en local: `npm run dev:api` y, en otra terminal, `npm run inspector` → http://localhost:3001/inspector/ (**Inspector demo** / **Veedor demo**).
 2. En el proyecto Vercel `colejuy-urbano`, al desplegar esta rama queda **https://colejuy-urbano.vercel.app/inspector/** (mismo host que la API). El build es `npm run build:web`.
-3. Chofer: `cd apps/driver && npx expo start`. Antes del turno elegí coche y línea del catálogo municipal. GPS en primer plano, cada 5 s (`watchPositionAsync`).
-4. Tokens demo: `inspector-token-example`, `veedor-token-example`, `chofer-token-example`.
+3. Chofer: `cd apps/driver && npx expo start`. Entrá con Google o con `chofer-demo` / `1`, elegí colectivo y línea, y el GPS sale en primer plano cada 5 s (`watchPositionAsync`).
+4. Panel: `inspector-token-example` y `veedor-token-example`. Chofer demo: usuario `chofer-demo`, clave `1` (salvo que `URBANO_CHOFER_TOKEN` la reemplace).
 5. El veedor solo mira. No asigna línea, no cambia visibilidad y no abre Usuarios. Esos PATCH/POST responden `403 Solo lectura`.
 
 ## Probar los tres roles
@@ -16,7 +16,7 @@ Tokens de demo (no son secrets de producción):
 
 | Rol | Token | Qué puede |
 | --- | --- | --- |
-| Chofer | `chofer-token-example` | Iniciar turno y mandar GPS |
+| Chofer | usuario `chofer-demo`, clave `1` | Elegir colectivo y línea, mandar GPS |
 | Inspector | `inspector-token-example` | Ver flota, asignar línea, visibilidad, ABM |
 | Veedor | `veedor-token-example` | Solo ver la flota |
 
@@ -52,9 +52,9 @@ cp ../../.env.example .env
 npx expo start
 ```
 
-Antes de iniciar el turno: número de coche, línea del catálogo municipal (14 recorridos reales, no inventados) y token. El GPS es en primer plano, cada ~5 s, con `watchPositionAsync`. Dejá la app abierta. El GPS de fondo cierra Expo Go.
+La app entra con Google (`EXPO_PUBLIC_GOOGLE_CLIENT_ID`, el mismo que `GOOGLE_CLIENT_ID`) o con usuario y clave. Demo: `chofer-demo` / `1`. Después se elige un colectivo de `GET /api/urbano/colectivos` y una línea del catálogo municipal. El GPS es en primer plano, cada ~5 s, con `watchPositionAsync`, y el ping manda ese `cocheId` y la línea. Dejá la app abierta. El GPS de fondo cierra Expo Go.
 
-Si no hay `.env`, la app igual apunta a `https://colejuy-urbano.vercel.app` y al token `chofer-token-example`.
+Si no hay `.env`, la app apunta a `https://colejuy-urbano.vercel.app`. `EXPO_PUBLIC_API_URL` la cambia.
 
 ## API
 
