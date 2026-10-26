@@ -1,35 +1,44 @@
 import { StatusBar } from 'expo-status-bar';
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, Button, Switch, Alert, Platform } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, Text, View, Button, Switch, Alert, Platform, TextInput, Pressable, ScrollView } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import urbanoLinesData from './urbano-lines.json';
+
+const URBANO_LINE_NUMBERS: string[] = Array.from(
+  new Set((urbanoLinesData as { number: string }[]).map((l) => String(l.number)))
+).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
 const LOCATION_TASK_NAME = 'urbano-background-location';
 const TURNO_CONTEXT_KEY = 'urbano:turno_context';
 const PING_QUEUE_KEY = 'urbano:ping_queue';
 
-// Definir la tarea de background GPS
-TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
-  if (error) {
-    console.error('Error en background location task:', error);
-    return;
-  }
-
-  if (data) {
-    const { locations } = data as { locations: Location.LocationObject[] };
-    const location = locations[0];
-
-    if (location) {
-      await enviarPingAlServidor({
-        lat: location.coords.latitude,
-        lng: location.coords.longitude,
-        timestamp: new Date(location.timestamp).toISOString(),
-        accuracy: location.coords.accuracy || 0,
-      });
+// Definir la tarea de background GPS (try/catch: en Expo Go a veces falla nativo)
+try {
+  TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
+    if (error) {
+      console.error('Error en background location task:', error);
+      return;
     }
-  }
-});
+
+    if (data) {
+      const { locations } = data as { locations: Location.LocationObject[] };
+      const location = locations[0];
+
+      if (location) {
+        await enviarPingAlServidor({
+          lat: location.coords.latitude,
+          lng: location.coords.longitude,
+          timestamp: new Date(location.timestamp).toISOString(),
+          accuracy: location.coords.accuracy || 0,
+        });
+      }
+    }
+  });
+} catch (e) {
+  console.warn('TaskManager.defineTask no disponible en este runtime', e);
+}
 
 interface PingData {
   lat: number;
@@ -114,13 +123,18 @@ export default function App() {
   const [turnoActivo, setTurnoActivo] = useState(false);
   const [disponible, setDisponible] = useState(true);
   const [cocheNumero, setCocheNumero] = useState('101');
-  const [linea, setLinea] = useState('A');
+  const [linea, setLinea] = useState(URBANO_LINE_NUMBERS[0] || '1');
   const [ultimoPing, setUltimoPing] = useState<string | null>(null);
   const [gpsActivo, setGpsActivo] = useState(false);
+  const watchRef = useRef<Location.LocationSubscription | null>(null);
 
   useEffect(() => {
     // Cargar estado del turno al iniciar
     cargarEstadoTurno();
+    return () => {
+      watchRef.current?.remove();
+      watchRef.current = null;
+    };
   }, []);
 
   async function cargarEstadoTurno() {
@@ -136,7 +150,6 @@ export default function App() {
 
   async function iniciarTurno() {
     try {
-      // Solicitar permisos
       const { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
 
       if (foregroundStatus !== 'granted') {
@@ -144,23 +157,18 @@ export default function App() {
         return;
       }
 
-      const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
-
-      if (backgroundStatus !== 'granted') {
-        Alert.alert(
-          'Permiso Limitado',
-          'El rastreo solo funcionará mientras la app esté abierta. Para rastreo continuo, otorga permiso "Siempre".'
-        );
+      // En Expo Go el GPS background suele crashear: usamos watch en primer plano cada 5s
+      watchRef.current?.remove();
+      watchRef.current = null;
+      try {
+        const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+        if (isTaskRegistered) {
+          await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+        }
+      } catch {
+        // ignore
       }
 
-      // Verificar si ya está corriendo
-      const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
-
-      if (isTaskRegistered) {
-        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-      }
-
-      // Guardar contexto del turno
       const turnoContext: TurnoContext = {
         cocheId: cocheNumero,
         turnoId: `turno_${Date.now()}`,
@@ -170,23 +178,27 @@ export default function App() {
 
       await AsyncStorage.setItem(TURNO_CONTEXT_KEY, JSON.stringify(turnoContext));
 
-      // Iniciar tracking en background
-      await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
-        accuracy: Location.Accuracy.Balanced,
-        timeInterval: 15000, // 15 segundos
-        distanceInterval: 50, // 50 metros
-        foregroundService: {
-          notificationTitle: 'El Urbano - Turno Activo',
-          notificationBody: `Rastreando recorrido - Coche ${cocheNumero}`,
-          notificationColor: '#e53935',
+      watchRef.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 5000,
+          distanceInterval: 5,
         },
-        pausesUpdatesAutomatically: false,
-        showsBackgroundLocationIndicator: true,
-      });
+        async (location) => {
+          const ping = {
+            lat: location.coords.latitude,
+            lng: location.coords.longitude,
+            timestamp: new Date(location.timestamp).toISOString(),
+            accuracy: location.coords.accuracy || 0,
+          };
+          await enviarPingAlServidor(ping);
+          setUltimoPing(new Date().toLocaleTimeString('es-AR'));
+        }
+      );
 
       setTurnoActivo(true);
       setGpsActivo(true);
-      Alert.alert('Turno Iniciado', 'El rastreo GPS está activo');
+      Alert.alert('Turno Iniciado', 'GPS activo cada 5 s (dejá la app abierta en Expo Go)');
 
     } catch (error) {
       console.error('Error iniciando turno:', error);
@@ -196,10 +208,15 @@ export default function App() {
 
   async function finalizarTurno() {
     try {
-      const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
-
-      if (isTaskRegistered) {
-        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      watchRef.current?.remove();
+      watchRef.current = null;
+      try {
+        const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+        if (isTaskRegistered) {
+          await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+        }
+      } catch {
+        // ignore
       }
 
       await AsyncStorage.removeItem(TURNO_CONTEXT_KEY);
@@ -225,12 +242,31 @@ export default function App() {
 
       <View style={styles.card}>
         <Text style={styles.label}>Número de Coche</Text>
-        <Text style={styles.value}>{cocheNumero}</Text>
+        <TextInput
+          style={styles.input}
+          value={cocheNumero}
+          onChangeText={setCocheNumero}
+          editable={!turnoActivo}
+          keyboardType="number-pad"
+          placeholder="101"
+          placeholderTextColor="#ffcdd2"
+        />
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.label}>Línea Asignada</Text>
-        <Text style={styles.value}>{linea}</Text>
+        <Text style={styles.label}>Línea (catálogo Urbano)</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+          {URBANO_LINE_NUMBERS.map((n) => (
+            <Pressable
+              key={n}
+              disabled={turnoActivo}
+              onPress={() => setLinea(n)}
+              style={[styles.chip, linea === n && styles.chipActive, turnoActivo && { opacity: 0.5 }]}
+            >
+              <Text style={[styles.chipText, linea === n && styles.chipTextActive]}>{n}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       </View>
 
       <View style={styles.card}>
@@ -274,7 +310,7 @@ export default function App() {
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          Durante el turno, el GPS envía tu ubicación cada 15 segundos o 50 metros
+          Durante el turno, el GPS envía tu ubicación cada 5 segundos o 5 metros
         </Text>
       </View>
     </View>

@@ -13,3 +13,5 @@ package-lock.json
 .env*
 apps/driver/.env
 *.tsbuildinfo
+apps/driver/.expo/
+apps/driver/expo-qr.png
