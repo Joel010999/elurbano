@@ -123,7 +123,7 @@ export default function UsuariosPanel({ token }: { token: string }) {
         <input
           value={credencial}
           onChange={(e) => setCredencial(e.target.value)}
-          placeholder="Token (opcional)"
+          placeholder="Contraseña (opcional)"
           className="border border-gray-300 rounded px-3 py-2"
         />
         <button type="submit" className="bg-urbano-red text-white rounded font-medium px-3 py-2">
@@ -137,7 +137,7 @@ export default function UsuariosPanel({ token }: { token: string }) {
             <tr className="text-left text-gray-500 border-b">
               <th className="py-2 pr-3">Identificador</th>
               <th className="py-2 pr-3">Rol</th>
-              <th className="py-2 pr-3">Token</th>
+              <th className="py-2 pr-3">Contraseña</th>
               <th className="py-2 pr-3">Estado</th>
               <th className="py-2">Acciones</th>
             </tr>

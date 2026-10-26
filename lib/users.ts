@@ -110,6 +110,32 @@ function inspectoresActivos(users: Usuario[], exceptoId?: string): number {
   return users.filter((u) => u.id !== exceptoId && u.rol === 'inspector' && u.activo).length;
 }
 
+
+export async function loginPanel(identificador: unknown, clave: unknown): Promise<Usuario> {
+  const id = cleanIdentificador(identificador).toLowerCase();
+  const password = cleanToken(clave);
+  if (!id || !password) throw new Error('Usuario y contraseña requeridos');
+
+  const users = await ensureUsuarios();
+  const found = users.find(
+    (u) => u.identificador.toLowerCase() === id && u.token === password && u.activo,
+  );
+  const user =
+    found ||
+    (() => {
+      // también aceptar seeds de env por identificador *-demo
+      for (const seed of seedUsers()) {
+        if (seed.identificador.toLowerCase() === id && seed.token === password && seed.activo) return seed;
+      }
+      return null;
+    })();
+
+  if (!user) throw new Error('Usuario o contraseña incorrectos');
+  if (user.rol === 'chofer') throw new Error('Este usuario es de chofer. Usá la app móvil.');
+  if (user.rol !== 'inspector' && user.rol !== 'veedor') throw new Error('No autorizado');
+  return user;
+}
+
 export async function listarUsuarios(): Promise<Usuario[]> {
   return ensureUsuarios();
 }

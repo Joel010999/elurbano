@@ -47,7 +47,8 @@ function normalizar(c: Coche): Coche {
 export default function InspectorPage() {
   const [token, setToken] = useState<string | null>(null);
   const [sesion, setSesion] = useState<Sesion | null>(null);
-  const [borrador, setBorrador] = useState('');
+  const [usuario, setUsuario] = useState('');
+  const [clave, setClave] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [entrando, setEntrando] = useState(false);
   const [coches, setCoches] = useState<Coche[]>([]);
@@ -62,10 +63,10 @@ export default function InspectorPage() {
 
   useEffect(() => {
     const saved = sessionStorage.getItem(TOKEN_KEY);
-    if (saved) void entrar(saved);
+    if (saved) void entrarConToken(saved);
   }, []);
 
-  async function entrar(valor: string) {
+  async function entrarConToken(valor: string) {
     const limpio = valor.trim();
     if (!limpio) return;
     setEntrando(true);
@@ -73,12 +74,40 @@ export default function InspectorPage() {
     try {
       const data = await api<Sesion>('/api/urbano/sesion', limpio);
       if (data.rol === 'chofer') {
-        setLoginError('Este token es de chofer. Entrá con inspector o veedor.');
+        setLoginError('Este usuario es de chofer. Usá la app móvil.');
         return;
       }
       sessionStorage.setItem(TOKEN_KEY, limpio);
       setToken(limpio);
       setSesion(data);
+    } catch (error) {
+      sessionStorage.removeItem(TOKEN_KEY);
+      setToken(null);
+      setSesion(null);
+      setLoginError(error instanceof Error ? error.message : 'No se pudo entrar');
+    } finally {
+      setEntrando(false);
+    }
+  }
+
+  async function loginConCredenciales(user: string, pass: string) {
+    const identificador = user.trim();
+    const clave = pass.trim();
+    if (!identificador || !clave) {
+      setLoginError('Usuario y contraseña requeridos');
+      return;
+    }
+    setEntrando(true);
+    setLoginError(null);
+    try {
+      const data = await api<Sesion & { token: string }>('/api/urbano/login', null, {
+        method: 'POST',
+        body: JSON.stringify({ identificador, clave }),
+      });
+      sessionStorage.setItem(TOKEN_KEY, data.token);
+      setToken(data.token);
+      setSesion({ id: data.id, identificador: data.identificador, rol: data.rol });
+      setClave('');
     } catch (error) {
       sessionStorage.removeItem(TOKEN_KEY);
       setToken(null);
@@ -186,28 +215,58 @@ export default function InspectorPage() {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              void entrar(borrador);
+              void loginConCredenciales(usuario, clave);
             }}
             className="bg-white rounded-lg shadow p-6 border-2 border-[#e53935] space-y-4"
           >
-            <h2 className="text-xl font-bold">Entrar</h2>
-            <p className="text-sm text-gray-600">Inspector opera. Veedor solo mira.</p>
-            <input
-              value={borrador}
-              onChange={(e) => setBorrador(e.target.value)}
-              placeholder="Token"
-              autoComplete="off"
-              className="w-full border border-gray-300 rounded px-3 py-2"
-            />
+            <h2 className="text-xl font-bold">Iniciar sesión</h2>
+            <p className="text-sm text-gray-600">Mismo acceso para inspector y veedor. El rol define si podés editar o solo mirar.</p>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">Usuario</label>
+              <input
+                value={usuario}
+                onChange={(e) => setUsuario(e.target.value)}
+                placeholder="inspector-demo"
+                autoComplete="username"
+                className="w-full border border-gray-300 rounded px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">Contraseña</label>
+              <input
+                type="password"
+                value={clave}
+                onChange={(e) => setClave(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                className="w-full border border-gray-300 rounded px-3 py-2"
+              />
+            </div>
             {loginError && <p className="text-sm text-amber-700">{loginError}</p>}
             <button type="submit" disabled={entrando} className="w-full bg-urbano-red text-white rounded py-2 font-medium">
               {entrando ? 'Entrando…' : 'Entrar'}
             </button>
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => void entrar(DEMO_INSPECTOR)} className="rounded border-2 border-[#e53935] py-2 text-sm font-medium text-[#e53935]">
+              <button
+                type="button"
+                onClick={() => {
+                  setUsuario('inspector-demo');
+                  setClave(DEMO_INSPECTOR);
+                  void loginConCredenciales('inspector-demo', DEMO_INSPECTOR);
+                }}
+                className="rounded border-2 border-[#e53935] py-2 text-sm font-medium text-[#e53935]"
+              >
                 Inspector demo
               </button>
-              <button type="button" onClick={() => void entrar(DEMO_VEEDOR)} className="rounded border-2 border-[#e53935] py-2 text-sm font-medium text-[#e53935]">
+              <button
+                type="button"
+                onClick={() => {
+                  setUsuario('veedor-demo');
+                  setClave(DEMO_VEEDOR);
+                  void loginConCredenciales('veedor-demo', DEMO_VEEDOR);
+                }}
+                className="rounded border-2 border-[#e53935] py-2 text-sm font-medium text-[#e53935]"
+              >
                 Veedor demo
               </button>
             </div>
