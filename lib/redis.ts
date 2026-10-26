@@ -54,7 +54,7 @@ class UpstashRedis implements RedisClient {
       throw new Error(`Redis request failed: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as { result?: unknown };
     return data.result;
   }
 
@@ -110,7 +110,9 @@ export async function savePing(
     timestamp: string;
     chofer: string;
     linea?: string;
+    actualizarLinea?: boolean;
     visibleEnColejuy?: boolean;
+    disponible?: boolean;
   }
 ): Promise<void> {
   const redis = getRedisClient();
@@ -118,15 +120,17 @@ export async function savePing(
 
   // Get existing data to preserve linea and visibleEnColejuy if not provided
   const existing = await redis.hgetall(key);
+  const lineaPrevia = existing?.linea ?? '';
+  const aplicarLinea = Boolean(data.linea) && (data.actualizarLinea === true || !lineaPrevia);
 
   const hashData: Record<string, string> = {
     lat: data.lat.toString(),
     lng: data.lng.toString(),
     timestamp: data.timestamp,
     chofer: data.chofer,
-    linea: data.linea ?? existing?.linea ?? '',
+    linea: aplicarLinea ? (data.linea as string) : lineaPrevia,
     visibleEnColejuy: (data.visibleEnColejuy ?? (existing?.visibleEnColejuy === 'true')).toString(),
-    disponible: 'true',
+    disponible: (data.disponible !== undefined ? data.disponible : (existing?.disponible !== 'false')).toString(),
     coche: cocheId,
   };
 
@@ -142,7 +146,7 @@ export async function getAllCoches(): Promise<CocheData[]> {
   for (const key of keys) {
     const data = await redis.hgetall(key);
     if (data) {
-      coches.push(data as CocheData);
+      coches.push(data as unknown as CocheData);
     }
   }
 
@@ -153,7 +157,7 @@ export async function getCoche(cocheId: string): Promise<CocheData | null> {
   const redis = getRedisClient();
   const key = `urbano:coche:${cocheId}:latest`;
   const data = await redis.hgetall(key);
-  return data as CocheData | null;
+  return (data as unknown as CocheData) || null;
 }
 
 export async function updateCocheLinea(cocheId: string, linea: string): Promise<void> {

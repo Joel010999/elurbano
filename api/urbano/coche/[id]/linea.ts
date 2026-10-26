@@ -1,43 +1,44 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { validateInspectorToken } from '../../../../lib/auth';
+import { requireRoles } from '../../../../lib/auth';
+import { applyCors, bearerToken } from '../../../../lib/cors';
+import { isLineaMunicipal } from '../../../../lib/muni-lines';
 import { updateCocheLinea } from '../../../../lib/redis';
 import type { LineaPayload } from '../../../../lib/types';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (applyCors(req, res)) return;
   if (req.method !== 'PATCH') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
     const { id } = req.query;
-    const payload = req.body as LineaPayload;
-    const bearer = typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')
-      ? req.headers.authorization.slice(7).trim()
-      : '';
-    const inspectorToken = (payload as any).inspectorToken || bearer;
+    const payload = (req.body || {}) as LineaPayload;
+    const inspectorToken = bearerToken(req.headers.authorization, payload.inspectorToken);
 
     if (!id || typeof id !== 'string') {
-      return res.status(400).json({ error: 'Invalid coche ID' });
+      return res.status(400).json({ error: 'Coche inválido' });
     }
 
     if (!payload.linea || !inspectorToken) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: 'Faltan campos' });
     }
 
-    // Validate inspector token
-    if (!validateInspectorToken(inspectorToken)) {
-      return res.status(401).json({ error: 'Invalid inspector token' });
+    if (!isLineaMunicipal(String(payload.linea))) {
+      return res.status(400).json({ error: 'Línea fuera del catálogo municipal' });
     }
 
-    // Update linea in Redis
-    await updateCocheLinea(id, payload.linea);
+    const gate = await requireRoles(inspectorToken, ['inspector']);
+    if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
 
-    return res.status(200).json({ success: true, message: 'Linea updated' });
+    await updateCocheLinea(id, String(payload.linea));
+
+    return res.status(200).json({ success: true, message: 'Línea actualizada' });
   } catch (error) {
     console.error('Error updating linea:', error);
     if (error instanceof Error && error.message === 'Coche not found') {
-      return res.status(404).json({ error: 'Coche not found' });
+      return res.status(404).json({ error: 'Coche no encontrado' });
     }
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Error interno' });
   }
 }

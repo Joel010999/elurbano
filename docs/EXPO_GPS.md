@@ -1,4 +1,8 @@
-# GPS en Segundo Plano - Expo/React Native
+# GPS del chofer
+
+**Expo Go:** el rastreo en segundo plano (`expo-task-manager` / `startLocationUpdatesAsync`) cierra la app. El turno usa `watchPositionAsync` en primer plano, cada ~5 segundos, con la app abierta. El resto de esta nota describe el esquema de background para un build nativo futuro; no lo actives en Expo Go.
+
+# GPS en segundo plano (referencia, no usar en Expo Go)
 
 ## Descripción General
 

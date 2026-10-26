@@ -8,6 +8,7 @@
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const CHOFER_TOKEN = process.env.URBANO_CHOFER_TOKEN || 'chofer-token-example';
 const INSPECTOR_TOKEN = process.env.URBANO_INSPECTOR_TOKEN || 'inspector-token-example';
+const VEEDOR_TOKEN = process.env.URBANO_VEEDOR_TOKEN || 'veedor-token-example';
 
 // ANSI colors
 const GREEN = '\x1b[32m';
@@ -43,6 +44,19 @@ async function request(path, options = {}) {
     throw new Error(`HTTP ${response.status}: ${JSON.stringify(data)}`);
   }
 
+  return { status: response.status, data };
+}
+
+async function statusOf(path, options = {}) {
+  const url = `${BASE_URL}${path}`;
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+  const data = await response.json().catch(() => ({}));
   return { status: response.status, data };
 }
 
@@ -91,7 +105,7 @@ async function runTests() {
     const { data } = await request('/api/urbano/coche/coche-001/linea', {
       method: 'PATCH',
       body: JSON.stringify({
-        linea: 'Línea A',
+        linea: '1',
         inspectorToken: INSPECTOR_TOKEN,
       }),
     });
@@ -127,7 +141,9 @@ async function runTests() {
 
   // Test 6: GET /api/urbano/fleet?mode=inspector
   results.push(await test('GET /api/urbano/fleet?mode=inspector - get all coches', async () => {
-    const { data } = await request('/api/urbano/fleet?mode=inspector');
+    const { data } = await request('/api/urbano/fleet?mode=inspector', {
+      headers: { Authorization: `Bearer ${INSPECTOR_TOKEN}` },
+    });
 
     if (!data.coches || !Array.isArray(data.coches)) {
       throw new Error('Invalid response format');
@@ -139,7 +155,7 @@ async function runTests() {
 
     const coche001 = data.coches.find(c => c.id === 'coche-001');
     if (!coche001) throw new Error('coche-001 not found');
-    if (coche001.linea !== 'Línea A') throw new Error('Linea not updated');
+    if (coche001.linea !== '1') throw new Error(`Linea not updated: ${coche001.linea}`);
     if (coche001.visibleEnColejuy !== true) throw new Error('Visibility not updated');
   }));
 
@@ -186,6 +202,125 @@ async function runTests() {
         throw new Error('Expected 401 unauthorized');
       }
     }
+  }));
+
+  results.push(await test('GET /api/urbano/lineas - catálogo municipal', async () => {
+    const { data } = await request('/api/urbano/lineas');
+    if (!Array.isArray(data.lineas) || !data.lineas.some((l) => l.id === 'muni-l001')) {
+      throw new Error('Catálogo municipal ausente');
+    }
+  }));
+
+  results.push(await test('GET fleet inspector sin token - 401', async () => {
+    const { status } = await statusOf('/api/urbano/fleet?mode=inspector');
+    if (status !== 401) throw new Error(`Expected 401, got ${status}`);
+  }));
+
+  results.push(await test('GET fleet inspector como veedor - 200', async () => {
+    const { data } = await request('/api/urbano/fleet?mode=inspector', {
+      headers: { Authorization: `Bearer ${VEEDOR_TOKEN}` },
+    });
+    if (!Array.isArray(data.coches)) throw new Error('Sin flota');
+  }));
+
+  results.push(await test('PATCH linea como veedor - solo lectura', async () => {
+    const { status, data } = await statusOf('/api/urbano/coche/coche-001/linea', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${VEEDOR_TOKEN}` },
+      body: JSON.stringify({ linea: '7' }),
+    });
+    if (status !== 403) throw new Error(`Expected 403, got ${status} ${JSON.stringify(data)}`);
+  }));
+
+  results.push(await test('PATCH visibilidad como veedor - solo lectura', async () => {
+    const { status } = await statusOf('/api/urbano/coche/coche-001/visibilidad', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${VEEDOR_TOKEN}` },
+      body: JSON.stringify({ visibleEnColejuy: false }),
+    });
+    if (status !== 403) throw new Error(`Expected 403, got ${status}`);
+  }));
+
+  results.push(await test('PATCH linea fuera de catálogo - 400', async () => {
+    const { status } = await statusOf('/api/urbano/coche/coche-001/linea', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${INSPECTOR_TOKEN}` },
+      body: JSON.stringify({ linea: 'Línea A' }),
+    });
+    if (status !== 400) throw new Error(`Expected 400, got ${status}`);
+  }));
+
+  results.push(await test('ABM usuarios - veedor no entra', async () => {
+    const { status } = await statusOf('/api/urbano/usuarios', {
+      headers: { Authorization: `Bearer ${VEEDOR_TOKEN}` },
+    });
+    if (status !== 403) throw new Error(`Expected 403, got ${status}`);
+  }));
+
+  const smokeId = `smoke-${Date.now().toString(36)}`;
+  let creadoId = '';
+  results.push(await test('ABM usuarios - inspector crea chofer', async () => {
+    const { status, data } = await statusOf('/api/urbano/usuarios', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${INSPECTOR_TOKEN}` },
+      body: JSON.stringify({ identificador: smokeId, rol: 'chofer', token: `${smokeId}-token` }),
+    });
+    if (status !== 201) throw new Error(`Expected 201, got ${status} ${JSON.stringify(data)}`);
+    creadoId = data.usuario && data.usuario.id;
+    if (!creadoId) throw new Error('Sin id');
+  }));
+
+  results.push(await test('POST ping con chofer creado en ABM', async () => {
+    const { data } = await request('/api/urbano/ping', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${smokeId}-token` },
+      body: JSON.stringify({
+        cocheId: 'coche-smoke',
+        lat: -24.1858,
+        lng: -65.2995,
+        timestamp: new Date().toISOString(),
+        turnoId: 'turno-smoke',
+        actualizarLinea: true,
+        linea: '14',
+      }),
+    });
+    if (!data.success) throw new Error('Ping del chofer nuevo falló');
+  }));
+
+  results.push(await test('ABM usuarios - editar y baja', async () => {
+    const edit = await statusOf(`/api/urbano/usuarios/${creadoId}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${INSPECTOR_TOKEN}` },
+      body: JSON.stringify({ identificador: `${smokeId}-edit` }),
+    });
+    if (edit.status !== 200) throw new Error(`PATCH ${edit.status}`);
+    const del = await statusOf(`/api/urbano/usuarios/${creadoId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${INSPECTOR_TOKEN}` },
+    });
+    if (del.status !== 200) throw new Error(`DELETE ${del.status}`);
+  }));
+
+  results.push(await test('POST ping del chofer dado de baja - 401', async () => {
+    const { status } = await statusOf('/api/urbano/ping', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${smokeId}-token` },
+      body: JSON.stringify({
+        cocheId: 'coche-smoke',
+        lat: -24.18,
+        lng: -65.29,
+        timestamp: new Date().toISOString(),
+        turnoId: 'turno-smoke',
+      }),
+    });
+    if (status !== 401) throw new Error(`Expected 401, got ${status}`);
+  }));
+
+  results.push(await test('GET sesion veedor', async () => {
+    const { data } = await request('/api/urbano/sesion', {
+      headers: { Authorization: `Bearer ${VEEDOR_TOKEN}` },
+    });
+    if (data.rol !== 'veedor') throw new Error(`Rol ${data.rol}`);
   }));
 
   // Summary

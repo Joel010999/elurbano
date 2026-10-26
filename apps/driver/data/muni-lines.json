@@ -1,0 +1,72 @@
+[
+  {
+    "id": "muni-l001",
+    "number": "1",
+    "name": "Linea 1"
+  },
+  {
+    "id": "muni-l007",
+    "number": "7",
+    "name": "Linea 7"
+  },
+  {
+    "id": "muni-l009",
+    "number": "9",
+    "name": "Linea 9"
+  },
+  {
+    "id": "muni-l013",
+    "number": "13",
+    "name": "Linea 13 150 Hectareas"
+  },
+  {
+    "id": "muni-l013b",
+    "number": "13",
+    "name": "Linea 13 10 Hectareas"
+  },
+  {
+    "id": "muni-l014",
+    "number": "14",
+    "name": "Linea 14"
+  },
+  {
+    "id": "muni-l022",
+    "number": "22",
+    "name": "Linea 22 Ex 48 Bis"
+  },
+  {
+    "id": "muni-l023",
+    "number": "23",
+    "name": "Linea 23"
+  },
+  {
+    "id": "muni-l031",
+    "number": "31",
+    "name": "Linea 31"
+  },
+  {
+    "id": "muni-l042",
+    "number": "42",
+    "name": "Linea 42 X Higuerilla Altos Del Zapla"
+  },
+  {
+    "id": "muni-l042b",
+    "number": "42",
+    "name": "Linea 42 X Antena"
+  },
+  {
+    "id": "muni-l043",
+    "number": "43",
+    "name": "Linea 43"
+  },
+  {
+    "id": "muni-l047",
+    "number": "47",
+    "name": "Linea 47"
+  },
+  {
+    "id": "muni-l048",
+    "number": "48",
+    "name": "Linea 48"
+  }
+]

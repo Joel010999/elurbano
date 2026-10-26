@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 /**
- * Local El Urbano API for smoke + phone tunnel.
- * Same routes as /api/urbano/* ; in-memory store (or Upstash if env set).
+ * API local de El Urbano. Compilá antes: npm run dev:api (tsc + este server).
+ * Misma lógica que las funciones de Vercel en /api/urbano/*.
  */
 import http from 'node:http';
 import { URL } from 'node:url';
+import { createRequire } from 'node:module';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const root = resolve(__dirname, '..');
+const require = createRequire(import.meta.url);
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-// load .env
 const envPath = resolve(root, '.env');
 if (existsSync(envPath)) {
   for (const line of readFileSync(envPath, 'utf8').split('\n')) {
@@ -21,137 +21,134 @@ if (existsSync(envPath)) {
   }
 }
 
-const CHOFER = process.env.URBANO_CHOFER_TOKEN || 'chofer-token-example';
-const INSPECTOR = process.env.URBANO_INSPECTOR_TOKEN || 'inspector-token-example';
-const PORT = Number(process.env.PORT || 3000);
-
-/** @type {Map<string, Record<string, string>>} */
-const store = new Map();
-
-function cors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+const dist = resolve(root, 'dist');
+if (!existsSync(resolve(dist, 'api/urbano/fleet.js'))) {
+  console.error('Falta dist/. Corré: npx tsc && cp lib/muni-lines.json dist/lib/');
+  process.exit(1);
 }
 
-function json(res, status, body) {
-  cors(res);
-  res.writeHead(status, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(body));
+function load(rel) {
+  const mod = require(resolve(dist, rel));
+  return mod.default || mod;
+}
+
+const routes = {
+  ping: load('api/urbano/ping.js'),
+  fleet: load('api/urbano/fleet.js'),
+  sesion: load('api/urbano/sesion.js'),
+  lineas: load('api/urbano/lineas.js'),
+  usuarios: load('api/urbano/usuarios/index.js'),
+  usuarioId: load('api/urbano/usuarios/[id].js'),
+  linea: load('api/urbano/coche/[id]/linea.js'),
+  visibilidad: load('api/urbano/coche/[id]/visibilidad.js'),
+};
+
+const PORT = Number(process.env.PORT || 3000);
+
+function callHandler(handler, req, res, query, body) {
+  let status = 200;
+  const headers = {};
+  let ended = false;
+  const vres = {
+    setHeader(k, v) {
+      headers[k] = v;
+      return vres;
+    },
+    status(code) {
+      status = code;
+      return vres;
+    },
+    json(obj) {
+      if (ended) return vres;
+      ended = true;
+      res.writeHead(status, { ...headers, 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(obj));
+      return vres;
+    },
+    end(data) {
+      if (ended) return vres;
+      ended = true;
+      res.writeHead(status, headers);
+      res.end(data ?? '');
+      return vres;
+    },
+  };
+  const vreq = { method: req.method, headers: req.headers, query, body, url: req.url };
+  return Promise.resolve(handler(vreq, vres)).then(() => {
+    if (!ended) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Sin respuesta' }));
+    }
+  });
 }
 
 async function readBody(req) {
   const chunks = [];
   for await (const c of req) chunks.push(c);
   if (!chunks.length) return {};
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return {}; }
-}
-
-function choferTokenFrom(req, body) {
-  const auth = req.headers.authorization || '';
-  if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
-  return body.choferToken || '';
-}
-
-function inspectorTokenFrom(req, body) {
-  const auth = req.headers.authorization || '';
-  if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
-  return body.inspectorToken || '';
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    return {};
+  }
 }
 
 const server = http.createServer(async (req, res) => {
-  cors(res);
-  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.writeHead(204);
+    return res.end();
+  }
 
   const u = new URL(req.url || '/', `http://${req.headers.host}`);
-  const path = u.pathname;
+  const path = u.pathname.replace(/\/$/, '') || '/';
+  const query = Object.fromEntries(u.searchParams.entries());
 
   try {
     if (req.method === 'GET' && path === '/health') {
-      return json(res, 200, { ok: true, coches: store.size });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true }));
     }
 
-    if (req.method === 'POST' && path === '/api/urbano/ping') {
-      const body = await readBody(req);
-      const token = choferTokenFrom(req, body);
-      if (!body.cocheId || body.lat == null || body.lng == null || !body.timestamp) {
-        return json(res, 400, { error: 'Missing required fields' });
-      }
-      if (token !== CHOFER) return json(res, 401, { error: 'Invalid chofer token' });
-      const prev = store.get(body.cocheId) || {};
-      store.set(body.cocheId, {
-        ...prev,
-        coche: body.cocheId,
-        lat: String(body.lat),
-        lng: String(body.lng),
-        timestamp: body.timestamp,
-        chofer: token.slice(0, 8),
-        linea: prev.linea || body.linea || '',
-        visibleEnColejuy: prev.visibleEnColejuy || 'false',
-        disponible: prev.disponible || 'true',
-      });
-      return json(res, 200, { success: true, message: 'Ping saved' });
-    }
+    const body = req.method === 'GET' || req.method === 'HEAD' ? {} : await readBody(req);
 
-    if (req.method === 'GET' && path === '/api/urbano/fleet') {
-      const mode = u.searchParams.get('mode');
-      if (mode !== 'inspector' && mode !== 'public') {
-        return json(res, 400, { error: 'Invalid mode. Use ?mode=inspector or ?mode=public' });
-      }
-      const all = [...store.values()];
-      if (mode === 'inspector') {
-        return json(res, 200, {
-          coches: all.map(c => ({
-            id: c.coche,
-            linea: c.linea || null,
-            lastPing: { lat: +c.lat, lng: +c.lng, timestamp: c.timestamp },
-            visibleEnColejuy: c.visibleEnColejuy === 'true',
-            disponible: c.disponible !== 'false',
-            chofer: c.chofer,
-          })),
-        });
-      }
-      return json(res, 200, {
-        coches: all
-          .filter(c => c.visibleEnColejuy === 'true')
-          .map(c => ({
-            id: c.coche,
-            linea: c.linea || null,
-            lastPing: { lat: +c.lat, lng: +c.lng, timestamp: c.timestamp },
-          })),
-      });
+    if (path === '/api/urbano/ping') return await callHandler(routes.ping, req, res, query, body);
+    if (path === '/api/urbano/fleet') return await callHandler(routes.fleet, req, res, query, body);
+    if (path === '/api/urbano/sesion') return await callHandler(routes.sesion, req, res, query, body);
+    if (path === '/api/urbano/lineas') return await callHandler(routes.lineas, req, res, query, body);
+    if (path === '/api/urbano/usuarios') return await callHandler(routes.usuarios, req, res, query, body);
+
+    const userMatch = path.match(/^\/api\/urbano\/usuarios\/([^/]+)$/);
+    if (userMatch) {
+      query.id = decodeURIComponent(userMatch[1]);
+      return await callHandler(routes.usuarioId, req, res, query, body);
     }
 
     const lineaMatch = path.match(/^\/api\/urbano\/coche\/([^/]+)\/linea$/);
-    if (req.method === 'PATCH' && lineaMatch) {
-      const body = await readBody(req);
-      if (inspectorTokenFrom(req, body) !== INSPECTOR) return json(res, 401, { error: 'Invalid inspector token' });
-      const id = decodeURIComponent(lineaMatch[1]);
-      const prev = store.get(id);
-      if (!prev) return json(res, 404, { error: 'Coche not found' });
-      store.set(id, { ...prev, linea: body.linea || '' });
-      return json(res, 200, { success: true });
+    if (lineaMatch) {
+      query.id = decodeURIComponent(lineaMatch[1]);
+      return await callHandler(routes.linea, req, res, query, body);
     }
 
     const visMatch = path.match(/^\/api\/urbano\/coche\/([^/]+)\/visibilidad$/);
-    if (req.method === 'PATCH' && visMatch) {
-      const body = await readBody(req);
-      if (inspectorTokenFrom(req, body) !== INSPECTOR) return json(res, 401, { error: 'Invalid inspector token' });
-      const id = decodeURIComponent(visMatch[1]);
-      const prev = store.get(id);
-      if (!prev) return json(res, 404, { error: 'Coche not found' });
-      store.set(id, { ...prev, visibleEnColejuy: body.visibleEnColejuy ? 'true' : 'false' });
-      return json(res, 200, { success: true });
+    if (visMatch) {
+      query.id = decodeURIComponent(visMatch[1]);
+      return await callHandler(routes.visibilidad, req, res, query, body);
     }
 
-    return json(res, 404, { error: 'Not found' });
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'Not found' }));
   } catch (e) {
     console.error(e);
-    return json(res, 500, { error: 'Internal server error' });
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Error interno' }));
+    }
   }
 });
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`El Urbano API local en http://0.0.0.0:${PORT}`);
-  console.log(`health: GET /health`);
 });
