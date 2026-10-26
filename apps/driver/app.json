@@ -17,9 +17,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["location"],
-        "NSLocationWhenInUseUsageDescription": "El Urbano necesita tu ubicación para rastrear el recorrido del colectivo",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "El Urbano necesita tu ubicación incluso en segundo plano para el seguimiento continuo del servicio"
+        "NSLocationWhenInUseUsageDescription": "El Urbano usa tu ubicación en primer plano mientras el turno está abierto"
       }
     },
     "android": {
@@ -29,19 +27,16 @@
       },
       "permissions": [
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION"
+        "ACCESS_COARSE_LOCATION"
       ]
     },
     "plugins": [
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "El Urbano necesita tu ubicación para rastrear el recorrido del colectivo.",
-          "isAndroidBackgroundLocationEnabled": true,
-          "isAndroidForegroundServiceEnabled": true
+          "locationWhenInUsePermission": "El Urbano usa tu ubicación en primer plano mientras el turno está abierto.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false
         }
       ]
     ]

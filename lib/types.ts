@@ -5,6 +5,9 @@ export interface PingPayload {
   timestamp: string;
   turnoId: string;
   choferToken: string;
+  linea?: string;
+  actualizarLinea?: boolean;
+  disponible?: boolean;
 }
 
 export interface CocheData {
@@ -27,7 +30,18 @@ export interface CocheResponse {
     timestamp: string;
   };
   visibleEnColejuy?: boolean;
+  disponible?: boolean;
   chofer?: string;
+}
+
+export type Rol = 'chofer' | 'inspector' | 'veedor';
+
+export interface Usuario {
+  id: string;
+  identificador: string;
+  rol: Rol;
+  token: string;
+  activo: boolean;
 }
 
 export interface FleetResponse {

@@ -73,7 +73,10 @@ type Props = {
 };
 
 // MapLibre ships its worker as a separate file; the bundler does not carry it, so it is served from public/.
-setWorkerUrl("/maplibre-gl-worker.mjs");
+const ASSET_BASE = process.env.NEXT_PUBLIC_BASE_PATH || "";
+if (typeof window !== "undefined") {
+  setWorkerUrl(`${ASSET_BASE}/maplibre-gl-worker.mjs`);
+}
 
 const STYLE = {
   light: "https://tiles.openfreemap.org/styles/positron",
@@ -113,8 +116,8 @@ function arrowImage(): ImageData {
 // A bus without signal keeps one gray drawing, since its heading is not known any more.
 const BUS_VIEWS = [0, 45, 90, 135, 180, 225, 270, 315] as const;
 const BUS_IMAGES: Record<string, string> = {
-  ...Object.fromEntries(BUS_VIEWS.map((d) => [`bus-${d}`, `/bus/bus-${d}.png`])),
-  "bus-seen": "/bus/bus-seen.png",
+  ...Object.fromEntries(BUS_VIEWS.map((d) => [`bus-${d}`, `${ASSET_BASE}/bus/bus-${d}.png`])),
+  "bus-seen": `${ASSET_BASE}/bus/bus-seen.png`,
 };
 
 function loadBusImages(m: MapLibreMap) {
@@ -218,7 +221,11 @@ export default function BusMap(props: Props) {
     m.touchZoomRotate.disableRotation();
     map.current = m;
 
+    m.on("error", (event) => {
+      console.error("maplibre", event.error || event);
+    });
     m.on("load", () => {
+      try {
       if (props.theme === "dark") charcoal(m);
       for (const id of ["route", "stops", "sube", "pin", "buses", "me"]) m.addSource(id, { type: "geojson", data: collection([]) });
       const rgb = ["to-rgb", ["to-color", ["get", "color"]]];
@@ -294,6 +301,18 @@ export default function BusMap(props: Props) {
       });
       loadBusImages(m);
       m.addLayer({
+        id: "bus-halo",
+        type: "circle",
+        source: "buses",
+        filter: ["==", ["get", "selected"], true],
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 16, 15, 24, 17, 32],
+          "circle-color": "rgba(229, 57, 53, 0.22)",
+          "circle-stroke-color": "#e53935",
+          "circle-stroke-width": 3,
+        },
+      });
+      m.addLayer({
         id: "buses",
         type: "symbol",
         source: "buses",
@@ -352,8 +371,8 @@ export default function BusMap(props: Props) {
         },
         paint: {
           "text-color": ["get", "text"],
-          "text-halo-color": ["get", "color"],
-          "text-halo-width": 2.5,
+          "text-halo-color": ["case", ["get", "selected"], "#e53935", ["get", "color"]],
+          "text-halo-width": ["case", ["get", "selected"], 4, 2.5],
           "text-opacity": ["case", ["get", "fresh"], 1, 0.5],
         },
       });
@@ -382,6 +401,10 @@ export default function BusMap(props: Props) {
       closeCredits();
       m.on("resize", closeCredits);
       setReady(true);
+      } catch (err) {
+        console.error("urbano map load", err);
+        setReady(true);
+      }
     });
 
     m.on("click", (e) => {
@@ -482,6 +505,7 @@ export default function BusMap(props: Props) {
                   bearing: stepped.shown.bearing ?? 0,
                   hasBearing: stepped.shown.bearing !== null,
                   arrow: arrowOpacity(rolling, fresh, stepped.shown.bearing),
+                  selected: following != null && b.id === following,
                 },
               },
             ];

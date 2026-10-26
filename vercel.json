@@ -1,4 +1,9 @@
 {
   "version": 2,
-  "regions": ["gru1"]
+  "regions": ["gru1"],
+  "buildCommand": "npm run build:web",
+  "outputDirectory": "public",
+  "rewrites": [
+    { "source": "/inspector", "destination": "/inspector/index.html" }
+  ]
 }

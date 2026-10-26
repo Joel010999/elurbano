@@ -8,6 +8,9 @@ dist
 
 .next
 apps/*/.next
+apps/inspector/out
+/public
+.playwright-mcp
 **/node_modules
 package-lock.json
 .env*

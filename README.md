@@ -1,49 +1,79 @@
 # El Urbano (`colejuy-urbano`)
 
-Chofer GPS (Expo) + panel inspector + API de flota. Brand rojo `#e53935`. El mapa del inspector **reusa** visuales de ColeJUY (`BusMap`, íconos, motion) — no inventar otro mapa.
+Chofer GPS (Expo) + panel inspector + API de flota. Rojo `#e53935`. El mapa reusa `BusMap` y OpenFreeMap. Repo aparte de `FrancoDuran23/colejuy`. No mergear a colejuy.
 
-Repo aparte de `FrancoDuran23/colejuy`. Sin merge a colejuy.
+## Probar ya
 
-## Estructura
+1. Inspector y veedor en local: `npm run dev:api` y, en otra terminal, `npm run inspector` → http://localhost:3001/inspector/ (**Inspector demo** / **Veedor demo**).
+2. En el proyecto Vercel `colejuy-urbano`, al desplegar esta rama queda **https://colejuy-urbano.vercel.app/inspector/** (mismo host que la API). El build es `npm run build:web`.
+3. Chofer: `cd apps/driver && npx expo start`. Antes del turno elegí coche y línea del catálogo municipal. GPS en primer plano, cada 5 s (`watchPositionAsync`).
+4. Tokens demo: `inspector-token-example`, `veedor-token-example`, `chofer-token-example`.
+5. El veedor solo mira. No asigna línea, no cambia visibilidad y no abre Usuarios. Esos PATCH/POST responden `403 Solo lectura`.
 
-```
-api/urbano/          # ping, fleet, assign línea, visibilidad
-lib/                 # auth + redis (Upstash o in-memory)
-apps/driver/         # Expo chofer (GPS fondo, coche, línea, disponible)
-apps/inspector/      # lista coches + assign + visibleEnColejuy + mapa
-packages/shared/     # tipos compartidos
-docs/                # SCOPE, design, EXPO_GPS, RIESGOS
-```
+## Probar los tres roles
 
-## API (local)
+Tokens de demo (no son secrets de producción):
+
+| Rol | Token | Qué puede |
+| --- | --- | --- |
+| Chofer | `chofer-token-example` | Iniciar turno y mandar GPS |
+| Inspector | `inspector-token-example` | Ver flota, asignar línea, visibilidad, ABM |
+| Veedor | `veedor-token-example` | Solo ver la flota |
+
+### Inspector y veedor
+
+En producción, después del deploy de este proyecto Vercel:
+
+**https://colejuy-urbano.vercel.app/inspector/**
+
+El mismo host sirve la API (`/api/urbano/*`) y el panel (`/inspector/`). El panel llama a `NEXT_PUBLIC_URBANO_API_BASE=https://colejuy-urbano.vercel.app`. En la pantalla de entrada: **Inspector demo** o **Veedor demo**.
+
+Local, contra la API de esta máquina:
 
 ```bash
-cp .env.example .env   # tokens de demo; sin secrets reales en git
+cp .env.example .env
 npm install
-npm run dev:api        # vercel dev → http://localhost:3000
-npm run test:api       # smoke
+npm run dev:api          # http://localhost:3000
+# en otra terminal, el panel apunta a esa API
+cd apps/inspector && echo 'NEXT_PUBLIC_URBANO_API_BASE=http://localhost:3000' > .env.local
+cd ../.. && npm run inspector
+# http://localhost:3001/inspector/
 ```
 
-Endpoints: `POST /api/urbano/ping`, `GET /api/urbano/fleet?mode=inspector|public`, `PATCH /api/urbano/coche/:id/linea`, `PATCH /api/urbano/coche/:id/visibilidad`.
+El veedor ve coches y el mapa. No asigna línea, no toca visibilidad y no ve Usuarios. Esos POST/PATCH responden `403 Solo lectura`.
 
-## Apps
+La pestaña **Usuarios** (inspector) da de alta chofer, inspector o veedor con identificador y token.
 
-```bash
-npm run driver       # Expo
-npm run inspector    # Next.js inspector
-```
-
-Ver `docs/SCOPE.md` y `docs/design.md`.
-
-## Prueba GPS (API en Vercel)
+### Chofer (Expo Go)
 
 ```bash
-# API smoke contra prod
-BASE_URL=https://colejuy-urbano.vercel.app npm run test:api
-
-# Chofer (desde apps/driver)
-cp .env.example .env   # ya apunta a https://colejuy-urbano.vercel.app
+cd apps/driver
+cp ../../.env.example .env
 npx expo start
 ```
 
-Tokens de prueba: `chofer-token-example` / `inspector-token-example`.
+Antes de iniciar el turno: número de coche, línea del catálogo municipal (14 recorridos reales, no inventados) y token. El GPS es en primer plano, cada ~5 s, con `watchPositionAsync`. Dejá la app abierta. El GPS de fondo cierra Expo Go.
+
+Si no hay `.env`, la app igual apunta a `https://colejuy-urbano.vercel.app` y al token `chofer-token-example`.
+
+## API
+
+```bash
+npm run dev:api
+npm run test:api
+```
+
+`POST /api/urbano/ping` (chofer), `GET /api/urbano/fleet?mode=inspector|public` (inspector y veedor el modo inspector; público sin token), `GET /api/urbano/lineas`, `GET /api/urbano/sesion`, `PATCH /api/urbano/coche/:id/linea`, `PATCH /api/urbano/coche/:id/visibilidad`, `GET|POST /api/urbano/usuarios`, `PATCH|DELETE /api/urbano/usuarios/:id`.
+
+Sin Upstash, flota y usuarios viven en memoria del proceso. Con `UPSTASH_REDIS_REST_URL` y `UPSTASH_REDIS_REST_TOKEN` persisten. Las tres cuentas demo se vuelven a sembrar si faltan.
+
+## Deploy (mismo proyecto Vercel)
+
+`vercel.json` ya deja el build en `npm run build:web` y la salida en `public/`. No hace falta un segundo proyecto: al desplegar este repo en **colejuy-urbano** quedan la API y el panel.
+
+```bash
+npm run build:web
+# panel estático en public/inspector
+```
+
+La raíz redirige a `/inspector/`.

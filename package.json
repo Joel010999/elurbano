@@ -2,21 +2,22 @@
   "name": "colejuy-urbano",
   "version": "1.0.0",
   "private": true,
-  "description": "El Urbano — chofer GPS, inspector y API de flota",
+  "description": "El Urbano \u2014 chofer GPS, inspector y API de flota",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "dev:api": "node scripts/local-server.mjs",
-    "test:api": "node scripts/smoke.js",
-    "type-check:api": "tsc --noEmit",
+    "dev:api": "tsc && cp lib/muni-lines.json dist/lib/ && node scripts/local-server.mjs",
+    "test:api": "node scripts/check-lines.mjs && node scripts/smoke.js",
+    "type-check:api": "node scripts/check-lines.mjs && tsc --noEmit",
+    "build:web": "NEXT_PUBLIC_URBANO_API_BASE=https://colejuy-urbano.vercel.app npm run build --workspace=@urbano/inspector && node scripts/publish-inspector.mjs",
+    "build": "npm run build:web",
     "driver": "npm run start --workspace=apps/driver",
     "inspector": "npm run dev --workspace=apps/inspector"
   },
   "dependencies": {
-    "@vercel/node": "^3.0.0",
-    "promise": "^8.3.0"
+    "@vercel/node": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

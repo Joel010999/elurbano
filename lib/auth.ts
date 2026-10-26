@@ -1,17 +1,18 @@
-export function validateChoferToken(token: string): boolean {
-  const validToken = process.env.URBANO_CHOFER_TOKEN;
-  if (!validToken) {
-    console.warn('URBANO_CHOFER_TOKEN not configured');
-    return false;
-  }
-  return token === validToken;
-}
+import type { Rol, Usuario } from './types';
+import { resolveUsuario } from './users';
 
-export function validateInspectorToken(token: string): boolean {
-  const validToken = process.env.URBANO_INSPECTOR_TOKEN;
-  if (!validToken) {
-    console.warn('URBANO_INSPECTOR_TOKEN not configured');
-    return false;
+export async function requireRoles(
+  token: string,
+  roles: Rol[],
+): Promise<{ ok: true; user: Usuario } | { ok: false; status: 401 | 403; error: string }> {
+  const user = await resolveUsuario(token);
+  if (!user) return { ok: false, status: 401, error: 'Token inválido' };
+  if (!roles.includes(user.rol)) {
+    return {
+      ok: false,
+      status: 403,
+      error: user.rol === 'veedor' ? 'Solo lectura' : 'No autorizado',
+    };
   }
-  return token === validToken;
+  return { ok: true, user };
 }
