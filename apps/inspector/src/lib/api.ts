@@ -2,8 +2,12 @@ export const API_BASE = (
   process.env.NEXT_PUBLIC_URBANO_API_BASE || 'https://colejuy-urbano.vercel.app'
 ).replace(/\/$/, '');
 
-export const DEMO_INSPECTOR = process.env.NEXT_PUBLIC_URBANO_INSPECTOR_TOKEN || 'inspector-token-example';
-export const DEMO_VEEDOR = process.env.NEXT_PUBLIC_URBANO_VEEDOR_TOKEN || 'veedor-token-example';
+/** ID de cliente de Google Identity Services. Vacío si falta GOOGLE_CLIENT_ID en el build. */
+export const GOOGLE_CLIENT_ID = (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '').trim();
+
+export const DEMO_INSPECTOR_USUARIO = 'inspector-demo';
+export const DEMO_VEEDOR_USUARIO = 'veedor-demo';
+export const DEMO_CLAVE = '1';
 
 export class ApiError extends Error {
   status: number;

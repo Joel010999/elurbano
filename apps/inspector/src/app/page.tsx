@@ -4,22 +4,28 @@ import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useState } from 'react';
 import type { Coche } from '../../../../packages/shared/types';
 import type { MapBus, MapPath } from '../components/BusMap';
+import ColectivosPanel from '../components/ColectivosPanel';
+import LoginPanel, { type SesionLogin } from '../components/LoginPanel';
 import UsuariosPanel from '../components/UsuariosPanel';
-import { API_BASE, DEMO_INSPECTOR, DEMO_VEEDOR, api } from '../lib/api';
-import { LINE_NUMBERS, URBANO_LINES, lineColor, lineNames, mapBusId } from '../lib/catalog';
+import { api } from '../lib/api';
+import { LINE_NUMBERS, URBANO_LINES, lineColor, lineNames, mapBusId, numeroCartel } from '../lib/catalog';
 
 const BusMap = dynamic(() => import('../components/BusMap'), {
   ssr: false,
   loading: () => <div className="map-wait">Cargando mapa…</div>,
 });
 
-const TOKEN_KEY = 'urbano:panel-token';
+const SESION_KEY = 'urbano:panel-sesion';
 
-type Rol = 'chofer' | 'inspector' | 'veedor';
+type Rol = 'inspector' | 'veedor';
 interface Sesion {
   id: string;
   identificador: string;
   rol: Rol;
+}
+
+function credencialDe(identificador: string, token: string): string {
+  return `${identificador}:${token}`;
 }
 
 function tiempoDesde(timestamp: string): string {
@@ -45,14 +51,11 @@ function normalizar(c: Coche): Coche {
 }
 
 export default function InspectorPage() {
-  const [token, setToken] = useState<string | null>(null);
+  const [credencial, setCredencial] = useState<string | null>(null);
   const [sesion, setSesion] = useState<Sesion | null>(null);
-  const [usuario, setUsuario] = useState('');
-  const [clave, setClave] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [entrando, setEntrando] = useState(false);
   const [coches, setCoches] = useState<Coche[]>([]);
-  const [vista, setVista] = useState<'lista' | 'mapa' | 'usuarios'>('lista');
+  const [vista, setVista] = useState<'lista' | 'mapa' | 'colectivos' | 'usuarios'>('lista');
   const [visibles, setVisibles] = useState<Set<string>>(() => new Set(LINE_NUMBERS));
   const [verSinLinea, setVerSinLinea] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -62,65 +65,55 @@ export default function InspectorPage() {
   const soloLectura = sesion?.rol !== 'inspector';
 
   useEffect(() => {
-    const saved = sessionStorage.getItem(TOKEN_KEY);
-    if (saved) void entrarConToken(saved);
+    const saved = sessionStorage.getItem(SESION_KEY);
+    if (!saved) return;
+    let guardada = '';
+    try {
+      const parsed = JSON.parse(saved) as { credencial?: string };
+      if (typeof parsed.credencial === 'string') guardada = parsed.credencial;
+    } catch {
+      guardada = '';
+    }
+    if (!guardada) return;
+    void entrarConCredencial(guardada);
   }, []);
 
-  async function entrarConToken(valor: string) {
-    const limpio = valor.trim();
-    if (!limpio) return;
-    setEntrando(true);
-    setLoginError(null);
+  async function entrarConCredencial(valor: string) {
     try {
-      const data = await api<Sesion>('/api/urbano/sesion', limpio);
-      if (data.rol === 'chofer') {
-        setLoginError('Este usuario es de chofer. Usá la app móvil.');
+      const data = await api<Sesion & { rol: string }>('/api/urbano/sesion', valor);
+      if (data.rol !== 'inspector' && data.rol !== 'veedor') {
+        sessionStorage.removeItem(SESION_KEY);
+        setLoginError('Este panel es solo para inspector y veedor.');
         return;
       }
-      sessionStorage.setItem(TOKEN_KEY, limpio);
-      setToken(limpio);
-      setSesion(data);
-    } catch (error) {
-      sessionStorage.removeItem(TOKEN_KEY);
-      setToken(null);
+      setCredencial(valor);
+      setSesion({ id: data.id, identificador: data.identificador, rol: data.rol });
+      setLoginError(null);
+    } catch {
+      sessionStorage.removeItem(SESION_KEY);
+      setCredencial(null);
       setSesion(null);
-      setLoginError(error instanceof Error ? error.message : 'No se pudo entrar');
-    } finally {
-      setEntrando(false);
     }
   }
 
-  async function loginConCredenciales(user: string, pass: string) {
-    const identificador = user.trim();
-    const clave = pass.trim();
-    if (!identificador || !clave) {
-      setLoginError('Usuario y contraseña requeridos');
-      return;
+  function aplicarSesion(data: SesionLogin) {
+    if (data.rol === 'chofer') {
+      throw new Error('Este usuario es de chofer. Usá la app móvil.');
     }
-    setEntrando(true);
+    if (data.rol !== 'inspector' && data.rol !== 'veedor') {
+      throw new Error('Este panel es solo para inspector y veedor.');
+    }
+    const valor = credencialDe(data.identificador, data.token);
+    const siguiente: Sesion = { id: data.id, identificador: data.identificador, rol: data.rol };
+    sessionStorage.setItem(SESION_KEY, JSON.stringify({ credencial: valor, ...siguiente }));
+    setCredencial(valor);
+    setSesion(siguiente);
     setLoginError(null);
-    try {
-      const data = await api<Sesion & { token: string }>('/api/urbano/login', null, {
-        method: 'POST',
-        body: JSON.stringify({ identificador, clave }),
-      });
-      sessionStorage.setItem(TOKEN_KEY, data.token);
-      setToken(data.token);
-      setSesion({ id: data.id, identificador: data.identificador, rol: data.rol });
-      setClave('');
-    } catch (error) {
-      sessionStorage.removeItem(TOKEN_KEY);
-      setToken(null);
-      setSesion(null);
-      setLoginError(error instanceof Error ? error.message : 'No se pudo entrar');
-    } finally {
-      setEntrando(false);
-    }
   }
 
   function salir() {
-    sessionStorage.removeItem(TOKEN_KEY);
-    setToken(null);
+    sessionStorage.removeItem(SESION_KEY);
+    setCredencial(null);
     setSesion(null);
     setCoches([]);
   }
@@ -130,11 +123,11 @@ export default function InspectorPage() {
   }, [sesion, vista]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!credencial) return;
     let vivo = true;
     const cargar = async () => {
       try {
-        const data = await api<{ coches: Coche[] }>('/api/urbano/fleet?mode=inspector', token);
+        const data = await api<{ coches: Coche[] }>('/api/urbano/fleet?mode=inspector', credencial);
         if (vivo && Array.isArray(data.coches)) {
           setCoches(data.coches.map(normalizar));
           setApiError(null);
@@ -155,7 +148,7 @@ export default function InspectorPage() {
       vivo = false;
       clearInterval(timer);
     };
-  }, [token]);
+  }, [credencial]);
 
   const toggleLinea = (n: string) => setVisibles((prev) => {
     const next = new Set(prev);
@@ -174,9 +167,9 @@ export default function InspectorPage() {
   [visibles]);
 
   async function asignarLinea(cocheId: string, nuevaLinea: string) {
-    if (soloLectura || !token) return;
+    if (soloLectura || !credencial) return;
     try {
-      await api(`/api/urbano/coche/${encodeURIComponent(cocheId)}/linea`, token, {
+      await api(`/api/urbano/coche/${encodeURIComponent(cocheId)}/linea`, credencial, {
         method: 'PATCH',
         body: JSON.stringify({ linea: nuevaLinea }),
       });
@@ -188,10 +181,10 @@ export default function InspectorPage() {
   }
 
   async function toggleVisibilidad(coche: Coche) {
-    if (soloLectura || !token) return;
+    if (soloLectura || !credencial) return;
     const visibleEnColejuy = !coche.visibleEnColejuy;
     try {
-      await api(`/api/urbano/coche/${encodeURIComponent(coche.id)}/visibilidad`, token, {
+      await api(`/api/urbano/coche/${encodeURIComponent(coche.id)}/visibilidad`, credencial, {
         method: 'PATCH',
         body: JSON.stringify({ visibleEnColejuy }),
       });
@@ -207,70 +200,17 @@ export default function InspectorPage() {
     if (coche.lastPing) setFollowId(mapBusId(coche.id));
   }
 
-  if (!sesion || !token) {
+  if (!sesion || !credencial) {
     return (
       <Marco>
         <Header titulo="El Urbano" subtitulo="Panel de flota" />
-        <main className="max-w-md mx-auto px-4 py-10">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void loginConCredenciales(usuario, clave);
-            }}
-            className="bg-white rounded-lg shadow p-6 border-2 border-[#e53935] space-y-4"
-          >
-            <h2 className="text-xl font-bold">Iniciar sesión</h2>
-            <p className="text-sm text-gray-600">Mismo acceso para inspector y veedor. El rol define si podés editar o solo mirar.</p>
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Usuario</label>
-              <input
-                value={usuario}
-                onChange={(e) => setUsuario(e.target.value)}
-                placeholder="inspector-demo"
-                autoComplete="username"
-                className="w-full border border-gray-300 rounded px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Contraseña</label>
-              <input
-                type="password"
-                value={clave}
-                onChange={(e) => setClave(e.target.value)}
-                placeholder="••••••••"
-                autoComplete="current-password"
-                className="w-full border border-gray-300 rounded px-3 py-2"
-              />
-            </div>
-            {loginError && <p className="text-sm text-amber-700">{loginError}</p>}
-            <button type="submit" disabled={entrando} className="w-full bg-urbano-red text-white rounded py-2 font-medium">
-              {entrando ? 'Entrando…' : 'Entrar'}
-            </button>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setUsuario('inspector-demo');
-                  setClave(DEMO_INSPECTOR);
-                  void loginConCredenciales('inspector-demo', DEMO_INSPECTOR);
-                }}
-                className="rounded border-2 border-[#e53935] py-2 text-sm font-medium text-[#e53935]"
-              >
-                Inspector demo
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setUsuario('veedor-demo');
-                  setClave(DEMO_VEEDOR);
-                  void loginConCredenciales('veedor-demo', DEMO_VEEDOR);
-                }}
-                className="rounded border-2 border-[#e53935] py-2 text-sm font-medium text-[#e53935]"
-              >
-                Veedor demo
-              </button>
-            </div>
-          </form>
+        <main className="max-w-md mx-auto px-4 py-10 space-y-3">
+          {loginError && (
+            <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+              {loginError}
+            </p>
+          )}
+          <LoginPanel onSession={aplicarSesion} />
         </main>
       </Marco>
     );
@@ -290,25 +230,26 @@ export default function InspectorPage() {
       <main className="max-w-7xl mx-auto px-4 py-6">
         {sesion.rol === 'veedor' && (
           <p className="mb-4 rounded border-2 border-[#e53935] bg-white px-4 py-3 text-sm">
-            Veedor municipal. Podés mirar la flota. No asignás líneas, ni visibilidad, ni usuarios.
+            Veedor municipal. Podés mirar la flota y el padrón de colectivos. No asignás líneas, no cambiás visibilidad y no das de alta, editás ni borrás.
           </p>
         )}
 
         <div className="bg-white rounded-lg shadow p-4 mb-6 flex flex-wrap gap-4 items-center justify-between border border-[#e53935]/40">
           <div className="text-sm text-gray-600">
             {cochesFiltrados.length} de {coches.length} coches · {visibles.size} de {LINE_NUMBERS.length} líneas
-            {apiError ? <span className="text-amber-700"> · {apiError}</span> : <span className="text-green-700"> · en vivo</span>}
+            {apiError ? <span className="text-red-700"> · {apiError}</span> : <span className="text-green-700"> · en vivo</span>}
           </div>
           <div className="flex gap-2">
             <Tab on={vista === 'lista'} onClick={() => setVista('lista')}>Lista</Tab>
             <Tab on={vista === 'mapa'} onClick={() => setVista('mapa')}>Mapa</Tab>
+            <Tab on={vista === 'colectivos'} onClick={() => setVista('colectivos')}>Colectivos</Tab>
             {sesion.rol === 'inspector' && (
               <Tab on={vista === 'usuarios'} onClick={() => setVista('usuarios')}>Usuarios</Tab>
             )}
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
+        {(vista === 'lista' || vista === 'mapa') && <div className="bg-white rounded-lg shadow p-4 mb-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-lg">Líneas</h2>
             <div className="flex gap-2">
@@ -343,9 +284,11 @@ export default function InspectorPage() {
               );
             })}
           </div>
-        </div>
+        </div>}
 
-        {vista === 'usuarios' && sesion.rol === 'inspector' && <UsuariosPanel token={token} />}
+        {vista === 'colectivos' && <ColectivosPanel token={credencial} soloLectura={soloLectura} />}
+
+        {vista === 'usuarios' && sesion.rol === 'inspector' && <UsuariosPanel token={credencial} />}
 
         {vista === 'lista' && (
           cochesFiltrados.length === 0 ? (
@@ -386,14 +329,17 @@ export default function InspectorPage() {
                     </div>
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-sm text-gray-600">Visible en ColeJUY</span>
-                      <button
-                        type="button"
-                        disabled={soloLectura}
-                        onClick={() => void toggleVisibilidad(coche)}
-                        className={`px-4 py-2 rounded font-medium ${coche.visibleEnColejuy ? 'bg-urbano-red text-white' : 'bg-gray-200 text-gray-700'} disabled:opacity-60`}
-                      >
-                        {coche.visibleEnColejuy ? 'Visible' : 'Oculto'}
-                      </button>
+                      {soloLectura ? (
+                        <span className="text-sm font-medium">{coche.visibleEnColejuy ? 'Visible' : 'Oculto'}</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void toggleVisibilidad(coche)}
+                          className={`px-4 py-2 rounded font-medium ${coche.visibleEnColejuy ? 'bg-urbano-red text-white' : 'bg-gray-200 text-gray-700'}`}
+                        >
+                          {coche.visibleEnColejuy ? 'Visible' : 'Oculto'}
+                        </button>
+                      )}
                     </div>
                     {coche.lastPing ? (
                       <div className="pt-3 border-t border-gray-200">
@@ -401,7 +347,7 @@ export default function InspectorPage() {
                         <p className="text-xs text-green-700 mt-1">{tiempoDesde(coche.lastPing.timestamp)}</p>
                       </div>
                     ) : (
-                      <p className="pt-3 border-t border-gray-200 text-sm text-amber-700">Sin señal GPS</p>
+                      <p className="pt-3 border-t border-gray-200 text-sm text-red-700">Sin señal GPS</p>
                     )}
                   </div>
                 </article>
@@ -420,8 +366,8 @@ export default function InspectorPage() {
                   line: c.linea || null,
                   lng: c.lastPing!.lng,
                   lat: c.lastPing!.lat,
-                  label: c.id,
-                  color: lineColor(c.linea || '1'),
+                  label: numeroCartel(c.id),
+                  color: '#e53935',
                   text: '#ffffff',
                   fresh: (Date.now() - new Date(c.lastPing!.timestamp).getTime()) < 120000,
                   speed: 0,

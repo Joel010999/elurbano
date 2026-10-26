@@ -110,27 +110,6 @@ function arrowImage(): ImageData {
   return g.getImageData(0, 0, size, size);
 }
 
-// Eight drawings of the bus, one every 45° (public/bus/bus-<deg>.png, drawn at 2x), like the cars
-// in ride apps: the map picks the one closest to the bearing instead of turning a single picture.
-// The map never rotates (dragRotate and touch rotation are off), so north is always up.
-// A bus without signal keeps one gray drawing, since its heading is not known any more.
-const BUS_VIEWS = [0, 45, 90, 135, 180, 225, 270, 315] as const;
-const BUS_IMAGES: Record<string, string> = {
-  ...Object.fromEntries(BUS_VIEWS.map((d) => [`bus-${d}`, `${ASSET_BASE}/bus/bus-${d}.png`])),
-  "bus-seen": `${ASSET_BASE}/bus/bus-seen.png`,
-};
-
-function loadBusImages(m: MapLibreMap) {
-  for (const [id, url] of Object.entries(BUS_IMAGES)) {
-    if (m.hasImage(id)) continue;
-    m.loadImage(url)
-      .then((img) => {
-        if (!m.hasImage(id)) m.addImage(id, img.data, { pixelRatio: 2 });
-      })
-      .catch((err) => console.error(`[map] ${url}`, err));
-  }
-}
-
 // The dark base, toned to charcoal with fewer labels, so the white buses are what stands out.
 function charcoal(m: MapLibreMap) {
   for (const layer of m.getStyle().layers ?? []) {
@@ -157,6 +136,27 @@ function isLight(hex: string): boolean {
   if (h.length !== 6) return false;
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
   return r * 0.299 + g * 0.587 + b * 0.114 > 150;
+}
+
+type Placa = { marker: Marker; root: HTMLButtonElement; num: HTMLElement };
+
+function crearPlaca(onPick: (id: number) => void): { root: HTMLButtonElement; num: HTMLElement } {
+  const root = document.createElement("button");
+  root.type = "button";
+  root.className = "urbano-placa";
+  const marca = document.createElement("span");
+  marca.className = "urbano-placa-marca";
+  marca.textContent = "EL URBANO";
+  const num = document.createElement("span");
+  num.className = "urbano-placa-num";
+  root.append(marca, num);
+  root.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const id = Number(root.dataset.busId);
+    if (Number.isFinite(id)) onPick(id);
+  });
+  return { root, num };
 }
 
 function markElement(m: MapMark): HTMLElement {
@@ -196,6 +196,7 @@ export default function BusMap(props: Props) {
   handlers.current = props;
 
   const markers = useRef(new globalThis.Map<string, Marker>());
+  const placas = useRef(new globalThis.Map<number, Placa>());
   // The last framing, so it can be redone when the map changes size, until the person moves the map themselves.
   const framed = useRef<{ bounds: LngLatBounds; moved: boolean } | null>(null);
   const view = useRef<{ center: [number, number]; zoom: number } | null>(null);
@@ -299,7 +300,6 @@ export default function BusMap(props: Props) {
           "circle-stroke-width": 4,
         },
       });
-      loadBusImages(m);
       m.addLayer({
         id: "bus-halo",
         type: "circle",
@@ -312,26 +312,7 @@ export default function BusMap(props: Props) {
           "circle-stroke-width": 3,
         },
       });
-      m.addLayer({
-        id: "buses",
-        type: "symbol",
-        source: "buses",
-        layout: {
-          "icon-image": [
-            "case",
-            // Directional drawing whenever the heading is known, also for a last-seen bus (dimmed);
-            // the gray straight-up drawing only when there is no heading at all.
-            ["any", ["get", "fresh"], ["get", "hasBearing"]],
-            ["concat", "bus-", ["to-string", ["*", 45, ["%", ["round", ["/", ["%", ["+", ["get", "bearing"], 360], 360], 45]], 8]]]],
-            "bus-seen",
-          ],
-          "icon-size": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 14, 0.85, 17, 1.2],
-          "icon-rotation-alignment": "viewport",
-          "icon-allow-overlap": true,
-          "icon-ignore-placement": true,
-        },
-        paint: { "icon-opacity": ["case", ["get", "fresh"], 1, 0.5] },
-      });
+      // El colectivo se dibuja como cartel HTML (rojo #e53935, número grande). No el PNG amarillo de ColeJUY.
       if (!m.hasImage("bus-arrow")) m.addImage("bus-arrow", arrowImage(), { sdf: true, pixelRatio: 2 });
       m.addLayer({
         id: "bus-arrow",
@@ -350,30 +331,10 @@ export default function BusMap(props: Props) {
           "icon-ignore-placement": true,
         },
         paint: {
-          "icon-color": ["get", "color"],
+          "icon-color": "#e53935",
           "icon-halo-color": "#ffffff",
           "icon-halo-width": 1.5,
           "icon-opacity": ["get", "arrow"],
-        },
-      });
-      m.addLayer({
-        id: "bus-labels",
-        type: "symbol",
-        source: "buses",
-        layout: {
-          "text-field": ["get", "label"],
-          "text-font": ["Noto Sans Bold"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 9, 15, 11],
-          "text-offset": [1.4, -1.1],
-          "text-anchor": "left",
-          "text-allow-overlap": true,
-          "text-ignore-placement": true,
-        },
-        paint: {
-          "text-color": ["get", "text"],
-          "text-halo-color": ["case", ["get", "selected"], "#e53935", ["get", "color"]],
-          "text-halo-width": ["case", ["get", "selected"], 4, 2.5],
-          "text-opacity": ["case", ["get", "fresh"], 1, 0.5],
         },
       });
       // The person's own position is the only blue thing on the map, with a halo around it,
@@ -416,7 +377,7 @@ export default function BusMap(props: Props) {
       if (stop) return handlers.current.onStop(String(stop.properties.id));
       const sube = m.queryRenderedFeatures(box, { layers: ["sube"] })[0];
       if (sube) return handlers.current.onSube(String(sube.properties.id));
-      const bus = m.queryRenderedFeatures(box, { layers: ["buses", "bus-arrow", "bus-labels"] })[0];
+      const bus = m.queryRenderedFeatures(box, { layers: ["bus-arrow", "bus-halo"] })[0];
       if (bus?.properties.id != null) return handlers.current.onBus(Number(bus.properties.id));
       handlers.current.onMap([e.lngLat.lng, e.lngLat.lat]);
     });
@@ -439,6 +400,8 @@ export default function BusMap(props: Props) {
       const center = m.getCenter();
       view.current = { center: [center.lng, center.lat], zoom: m.getZoom() };
       resize.disconnect();
+      for (const placa of placas.current.values()) placa.marker.remove();
+      placas.current.clear();
       m.remove();
       map.current = null;
     };
@@ -473,51 +436,76 @@ export default function BusMap(props: Props) {
     let last = 0;
     const tick = (now: number) => {
       frameId = requestAnimationFrame(tick);
+      if (!map.current) return;
       if (now - last < FRAME_MS) return;
       last = now;
       const wall = Date.now();
       const glide = !reducedMotion();
       const { buses: current, routes: lines, followBusId: following } = handlers.current;
       let followedAt: [number, number] | null = null;
-      source.setData(
-        collection(
-          current.flatMap((b) => {
-            const state = motions.current.get(b.id);
-            if (!state) return [];
-            const mine = lines.filter((r) => r.line === b.line);
-            const stepped = stepMotion(state, mine, wall, glide);
-            motions.current.set(b.id, stepped);
-            if (b.id === following) followedAt = stepped.shown.at;
-            const ageNow = stepped.fix.age + (wall - stepped.movedAtMs) / 1000;
-            const fresh = b.fresh && ageNow <= STALE_S;
-            const rolling = stepped.fix.moving && stepped.fix.speed > STOP_KMH;
-            return [
-              {
-                type: "Feature" as const,
-                geometry: { type: "Point" as const, coordinates: stepped.shown.at },
-                properties: {
-                  id: b.id,
-                  line: b.line,
-                  label: b.label,
-                  color: b.color,
-                  text: b.text,
-                  fresh,
-                  bearing: stepped.shown.bearing ?? 0,
-                  hasBearing: stepped.shown.bearing !== null,
-                  arrow: arrowOpacity(rolling, fresh, stepped.shown.bearing),
-                  selected: following != null && b.id === following,
-                },
-              },
-            ];
-          }),
-        ),
-      );
+      const features: GeoJSON.Feature[] = [];
+      const vistos = new Set<number>();
+      for (const b of current) {
+        const state = motions.current.get(b.id);
+        if (!state) continue;
+        const mine = lines.filter((r) => r.line === b.line);
+        const stepped = stepMotion(state, mine, wall, glide);
+        motions.current.set(b.id, stepped);
+        if (b.id === following) followedAt = stepped.shown.at;
+        const ageNow = stepped.fix.age + (wall - stepped.movedAtMs) / 1000;
+        const fresh = b.fresh && ageNow <= STALE_S;
+        const rolling = stepped.fix.moving && stepped.fix.speed > STOP_KMH;
+        const selected = following != null && b.id === following;
+        vistos.add(b.id);
+        let placa = placas.current.get(b.id);
+        if (!placa) {
+          const creada = crearPlaca((id) => handlers.current.onBus(id));
+          creada.root.dataset.busId = String(b.id);
+          placa = {
+            ...creada,
+            marker: new Marker({ element: creada.root, anchor: "bottom" }).setLngLat(stepped.shown.at).addTo(m),
+          };
+          placas.current.set(b.id, placa);
+        }
+        const numero = b.label || String(b.id);
+        if (placa.num.textContent !== numero) placa.num.textContent = numero;
+        placa.root.dataset.fresh = fresh ? "1" : "0";
+        placa.root.dataset.selected = selected ? "1" : "0";
+        placa.root.setAttribute("aria-label", `Colectivo ${numero}`);
+        placa.marker.setLngLat(stepped.shown.at);
+        features.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: stepped.shown.at },
+          properties: {
+            id: b.id,
+            line: b.line,
+            label: b.label,
+            color: "#e53935",
+            text: "#ffffff",
+            fresh,
+            bearing: stepped.shown.bearing ?? 0,
+            hasBearing: stepped.shown.bearing !== null,
+            arrow: arrowOpacity(rolling, fresh, stepped.shown.bearing),
+            selected,
+          },
+        });
+      }
+      for (const [id, placa] of placas.current) {
+        if (vistos.has(id)) continue;
+        placa.marker.remove();
+        placas.current.delete(id);
+      }
+      source.setData(collection(features));
       // Recenters every frame rather than easing: the bus itself already glides smoothly
       // (stepMotion above), so a plain jump here just rides along with it.
       if (followedAt && performance.now() >= followEasingUntil.current) m.setCenter(followedAt);
     };
     frameId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frameId);
+    return () => {
+      cancelAnimationFrame(frameId);
+      for (const placa of placas.current.values()) placa.marker.remove();
+      placas.current.clear();
+    };
   }, [ready]);
 
   useEffect(() => {

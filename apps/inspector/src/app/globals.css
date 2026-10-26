@@ -89,3 +89,47 @@ body {
 .route-legend i.dashed {
   border-top-style: dashed;
 }
+
+/* Cartel del colectivo: marquesina blanca "EL URBANO" y número grande sobre rojo. */
+.urbano-placa {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+}
+
+.urbano-placa-marca {
+  background: #fff;
+  color: #e53935;
+  font: 800 9px/1.15 system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding: 2px 8px 1px;
+  border: 2px solid #e53935;
+  border-bottom: 0;
+  border-radius: 3px 3px 0 0;
+}
+
+.urbano-placa-num {
+  background: #e53935;
+  color: #fff;
+  font: 800 28px/1 system-ui, sans-serif;
+  text-align: center;
+  padding: 4px 8px 6px;
+  border: 2px solid #b71c1c;
+  border-radius: 0 0 6px 6px;
+  min-width: 2.4em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.28);
+}
+
+.urbano-placa[data-fresh="0"] {
+  opacity: 0.55;
+}
+
+.urbano-placa[data-selected="1"] .urbano-placa-num {
+  box-shadow: 0 0 0 3px #fff, 0 0 0 6px #e53935;
+}
