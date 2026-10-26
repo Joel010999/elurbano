@@ -39,6 +39,8 @@ export type Rol = 'chofer' | 'inspector' | 'veedor';
 export interface Usuario {
   id: string;
   identificador: string;
+  /** Email de Google / ABM; si falta, se usa identificador. */
+  email?: string;
   rol: Rol;
   token: string;
   activo: boolean;

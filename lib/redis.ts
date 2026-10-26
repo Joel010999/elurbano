@@ -10,6 +10,7 @@ interface RedisClient {
   hgetall(key: string): Promise<Record<string, string> | null>;
   keys(pattern: string): Promise<string[]>;
   expire(key: string, seconds: number): Promise<void>;
+  del(key: string): Promise<void>;
 }
 
 class InMemoryRedis implements RedisClient {
@@ -28,6 +29,10 @@ class InMemoryRedis implements RedisClient {
 
   async expire(_key: string, _seconds: number): Promise<void> {
     // In-memory doesn't implement TTL for simplicity
+  }
+
+  async del(key: string): Promise<void> {
+    inMemoryStore.delete(key);
   }
 }
 
@@ -80,6 +85,10 @@ class UpstashRedis implements RedisClient {
 
   async expire(key: string, seconds: number): Promise<void> {
     await this.request(['EXPIRE', key, seconds.toString()]);
+  }
+
+  async del(key: string): Promise<void> {
+    await this.request(['DEL', key]);
   }
 }
 

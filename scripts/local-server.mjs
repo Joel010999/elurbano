@@ -37,8 +37,13 @@ const routes = {
   fleet: load('api/urbano/fleet.js'),
   sesion: load('api/urbano/sesion.js'),
   lineas: load('api/urbano/lineas.js'),
+  login: load('api/urbano/login.js'),
+  authLogin: load('api/urbano/auth/login.js'),
+  authGoogle: load('api/urbano/auth/google.js'),
   usuarios: load('api/urbano/usuarios/index.js'),
   usuarioId: load('api/urbano/usuarios/[id].js'),
+  colectivos: load('api/urbano/colectivos/index.js'),
+  colectivoId: load('api/urbano/colectivos/[id].js'),
   linea: load('api/urbano/coche/[id]/linea.js'),
   visibilidad: load('api/urbano/coche/[id]/visibilidad.js'),
 };
@@ -97,7 +102,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Identificador');
     res.writeHead(204);
     return res.end();
   }
@@ -118,7 +123,17 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/urbano/fleet') return await callHandler(routes.fleet, req, res, query, body);
     if (path === '/api/urbano/sesion') return await callHandler(routes.sesion, req, res, query, body);
     if (path === '/api/urbano/lineas') return await callHandler(routes.lineas, req, res, query, body);
+    if (path === '/api/urbano/login') return await callHandler(routes.login, req, res, query, body);
+    if (path === '/api/urbano/auth/login') return await callHandler(routes.authLogin, req, res, query, body);
+    if (path === '/api/urbano/auth/google') return await callHandler(routes.authGoogle, req, res, query, body);
     if (path === '/api/urbano/usuarios') return await callHandler(routes.usuarios, req, res, query, body);
+    if (path === '/api/urbano/colectivos') return await callHandler(routes.colectivos, req, res, query, body);
+
+    const colectivoMatch = path.match(/^\/api\/urbano\/colectivos\/([^/]+)$/);
+    if (colectivoMatch) {
+      query.id = decodeURIComponent(colectivoMatch[1]);
+      return await callHandler(routes.colectivoId, req, res, query, body);
+    }
 
     const userMatch = path.match(/^\/api\/urbano\/usuarios\/([^/]+)$/);
     if (userMatch) {

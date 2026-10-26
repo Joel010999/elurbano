@@ -1,4 +1,5 @@
 import type { Rol, Usuario } from './types';
+import { ErrorApi } from './auth';
 import { getRedisClient } from './redis';
 
 const USERS_KEY = 'urbano:usuarios';
@@ -8,27 +9,32 @@ export function isRol(value: string): value is Rol {
   return (ROLES as string[]).includes(value);
 }
 
+const SEED_TOKEN = '1';
+
 function seedUsers(): Usuario[] {
   return [
     {
       id: 'usr-chofer-demo',
       identificador: 'chofer-demo',
+      email: 'chofer-demo',
       rol: 'chofer',
-      token: process.env.URBANO_CHOFER_TOKEN || 'chofer-token-example',
+      token: process.env.URBANO_CHOFER_TOKEN || SEED_TOKEN,
       activo: true,
     },
     {
       id: 'usr-inspector-demo',
       identificador: 'inspector-demo',
+      email: 'inspector-demo',
       rol: 'inspector',
-      token: process.env.URBANO_INSPECTOR_TOKEN || 'inspector-token-example',
+      token: process.env.URBANO_INSPECTOR_TOKEN || SEED_TOKEN,
       activo: true,
     },
     {
       id: 'usr-veedor-demo',
       identificador: 'veedor-demo',
+      email: 'veedor-demo',
       rol: 'veedor',
-      token: process.env.URBANO_VEEDOR_TOKEN || 'veedor-token-example',
+      token: process.env.URBANO_VEEDOR_TOKEN || SEED_TOKEN,
       activo: true,
     },
   ];
@@ -53,11 +59,32 @@ async function writeUsuarios(users: Usuario[]): Promise<void> {
 
 export async function ensureUsuarios(): Promise<Usuario[]> {
   const users = await readUsuarios();
-  const missing = seedUsers().filter((seed) => !users.some((u) => u.id === seed.id));
-  if (missing.length === 0) return users;
-  const next = [...users, ...missing];
-  await writeUsuarios(next);
-  return next;
+  const byId = new Map(users.map((u) => [u.id, u]));
+  let changed = false;
+  for (const seed of seedUsers()) {
+    const existing = byId.get(seed.id);
+    if (!existing) {
+      users.push(seed);
+      byId.set(seed.id, seed);
+      changed = true;
+      continue;
+    }
+    // Demos: forzar token "1" si no hay override de env para ese rol
+    const envOverride =
+      (seed.rol === 'chofer' && process.env.URBANO_CHOFER_TOKEN) ||
+      (seed.rol === 'inspector' && process.env.URBANO_INSPECTOR_TOKEN) ||
+      (seed.rol === 'veedor' && process.env.URBANO_VEEDOR_TOKEN);
+    if (!envOverride && existing.token !== SEED_TOKEN) {
+      existing.token = SEED_TOKEN;
+      changed = true;
+    }
+    if (!existing.email) {
+      existing.email = seed.email || seed.identificador;
+      changed = true;
+    }
+  }
+  if (changed) await writeUsuarios(users);
+  return users;
 }
 
 function envUsuario(token: string): Usuario | null {
@@ -97,7 +124,7 @@ export function validarIdentificador(identificador: string): string | null {
 }
 
 export function validarToken(token: string): string | null {
-  if (token.length < 8 || token.length > 80) return 'Token inválido';
+  if (token.length < 1 || token.length > 80) return 'Token inválido';
   if (/\s/.test(token)) return 'Token inválido';
   return null;
 }
@@ -228,4 +255,69 @@ export async function bajaUsuario(id: string): Promise<{ removed: boolean; usuar
   users.splice(idx, 1);
   await writeUsuarios(users);
   return { removed: true };
+}
+
+
+export async function loginConClave(identificador: unknown, clave: unknown): Promise<Usuario> {
+  const id = cleanIdentificador(identificador).toLowerCase();
+  const password = cleanToken(clave);
+  if (!id || !password) throw new ErrorApi(400, 'Usuario y contraseña requeridos');
+
+  const users = await ensureUsuarios();
+  const found = users.find(
+    (u) =>
+      u.activo &&
+      u.token === password &&
+      (u.identificador.toLowerCase() === id ||
+        (u.email || '').toLowerCase() === id ||
+        u.id.toLowerCase() === id),
+  );
+  if (!found) {
+    for (const seed of seedUsers()) {
+      if (
+        seed.activo &&
+        seed.token === password &&
+        (seed.identificador.toLowerCase() === id || (seed.email || '').toLowerCase() === id)
+      ) {
+        return seed;
+      }
+    }
+    throw new ErrorApi(401, 'Usuario o contraseña incorrectos');
+  }
+  return found;
+}
+
+interface GoogleTokenInfo {
+  aud?: string;
+  azp?: string;
+  email?: string;
+  email_verified?: string | boolean;
+}
+
+export async function loginConGoogle(idToken: unknown): Promise<Usuario> {
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+  if (!clientId) throw new ErrorApi(500, 'GOOGLE_CLIENT_ID no está configurado');
+  if (typeof idToken !== 'string' || !idToken.trim()) throw new ErrorApi(400, 'idToken requerido');
+
+  const respuesta = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken.trim())}`,
+  );
+  if (!respuesta.ok) throw new ErrorApi(401, 'Token de Google inválido');
+  const info = (await respuesta.json()) as GoogleTokenInfo;
+  const aud = info.aud || info.azp;
+  if (aud !== clientId) throw new ErrorApi(401, 'Token de Google no corresponde a esta aplicación');
+  if (info.email_verified === false || info.email_verified === 'false') {
+    throw new ErrorApi(401, 'El email de Google no está verificado');
+  }
+  if (!info.email) throw new ErrorApi(401, 'El token de Google no incluye email');
+
+  const email = info.email.trim().toLowerCase();
+  const users = await ensureUsuarios();
+  const usuario = users.find(
+    (u) =>
+      u.activo &&
+      ((u.email || '').toLowerCase() === email || u.identificador.toLowerCase() === email),
+  );
+  if (!usuario) throw new ErrorApi(404, 'No existe un usuario con ese email');
+  return usuario;
 }
