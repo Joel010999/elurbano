@@ -65,6 +65,25 @@ interface Prefs {
 
 const CATALOGO_INICIAL = catalogoLocal as MuniLine[];
 
+function textoLinea(linea: Pick<MuniLine, 'number' | 'name'> | undefined): string {
+  if (!linea?.number?.trim()) return 'Sin línea';
+  const numero = linea.number.trim();
+  const nombre = (linea.name || '').trim();
+  const resto = nombre
+    .replace(new RegExp(`^l[ií]nea\\s+${numero.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'i'), '')
+    .trim();
+  return resto ? `Línea ${numero} — ${resto}` : `Línea ${numero}`;
+}
+
+function Unidad({ numero, patente }: { numero: string; patente?: string }) {
+  return (
+    <View style={styles.unidad}>
+      <Text style={styles.etiqueta}>Número de unidad</Text>
+      <NumeroCoche numero={numero} patente={patente} />
+    </View>
+  );
+}
+
 function aSesionGuardada(raw: string | null): Sesion | null {
   if (!raw) return null;
   try {
@@ -474,10 +493,10 @@ export default function App() {
         />
       ) : turnoActivo ? (
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <NumeroCoche numero={numeroVisible} patente={patenteVisible} />
+          <Unidad numero={numeroVisible} patente={patenteVisible} />
           <View style={styles.card}>
-            <Text style={styles.label}>Línea</Text>
-            <Text style={styles.valor}>{linea ? `${linea.number} · ${linea.name}` : 'Sin línea'}</Text>
+            <Text style={styles.etiqueta}>Línea de recorrido</Text>
+            <Text style={styles.valorLinea}>{textoLinea(linea)}</Text>
           </View>
           <View style={styles.card}>
             <View style={styles.row}>
@@ -506,7 +525,7 @@ export default function App() {
         </ScrollView>
       ) : (
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <NumeroCoche numero={numeroVisible} patente={patenteVisible} />
+          <Unidad numero={numeroVisible} patente={patenteVisible} />
           <Text style={styles.bloque}>Colectivo</Text>
           {cargandoCoches ? <ActivityIndicator color={BRAND} style={styles.carga} /> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -538,9 +557,14 @@ export default function App() {
             })
           )}
 
-          <Text style={styles.bloque}>Línea</Text>
-          <Pressable onPress={() => setElegirLinea(true)} style={styles.lineaBtn} accessibilityRole="button">
-            <Text style={styles.lineaTxt}>{linea ? `${linea.number} · ${linea.name}` : 'Elegir línea'}</Text>
+          <Text style={[styles.etiqueta, styles.etiquetaSeccion]}>Línea de recorrido</Text>
+          <Pressable
+            onPress={() => setElegirLinea(true)}
+            style={styles.lineaBtn}
+            accessibilityRole="button"
+            accessibilityLabel={linea ? `Línea de recorrido, ${textoLinea(linea)}` : 'Elegir línea de recorrido'}
+          >
+            <Text style={styles.lineaTxt}>{linea ? textoLinea(linea) : 'Elegir línea'}</Text>
           </Pressable>
 
           <View style={styles.card}>
@@ -580,7 +604,7 @@ export default function App() {
                   style={[styles.lineaItem, on && styles.lineaItemOn]}
                 >
                   <Text style={[styles.lineaItemTxt, on && styles.lineaItemTxtOn]}>
-                    {item.number} · {item.name}
+                    {textoLinea(item)}
                   </Text>
                 </Pressable>
               );
@@ -633,6 +657,16 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 16, color: '#666', marginTop: 2 },
   salir: { color: BRAND, fontWeight: '700', fontSize: 16 },
   scroll: { paddingBottom: 28 },
+  unidad: { marginBottom: 4 },
+  etiqueta: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+    color: INK,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  etiquetaSeccion: { marginTop: 16 },
   bloque: { fontSize: 14, color: '#666', marginTop: 16, marginBottom: 8 },
   card: {
     backgroundColor: 'white',
@@ -643,7 +677,7 @@ const styles = StyleSheet.create({
     borderColor: '#f0d0d0',
   },
   label: { fontSize: 14, color: '#666' },
-  valor: { fontSize: 16, fontWeight: '600', color: INK, marginTop: 4 },
+  valorLinea: { fontSize: 20, fontWeight: '800', color: INK },
   carga: { marginVertical: 12 },
   vacio: { color: '#666', fontSize: 15 },
   reintentar: { marginTop: 12, alignSelf: 'flex-start' },
