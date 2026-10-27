@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { requireRoles } from '../../lib/auth';
-import { applyCors, bearerToken } from '../../lib/cors';
-import { getAllCoches } from '../../lib/redis';
-import type { CocheResponse, FleetResponse } from '../../lib/types';
+import { requireRoles } from '../auth';
+import { applyCors, bearerToken } from '../cors';
+import { getAllCoches } from '../redis';
+import type { CocheResponse, FleetResponse } from '../types';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;

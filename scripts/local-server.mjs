@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * API local de El Urbano. Compilá antes: npm run dev:api (tsc + este server).
- * Misma lógica que las funciones de Vercel en /api/urbano/*.
+ * Misma lógica que la función de Vercel en /api/urbano/[...path].
  */
 import http from 'node:http';
 import { URL } from 'node:url';
@@ -22,7 +22,7 @@ if (existsSync(envPath)) {
 }
 
 const dist = resolve(root, 'dist');
-if (!existsSync(resolve(dist, 'api/urbano/fleet.js'))) {
+if (!existsSync(resolve(dist, 'lib/routes/dispatch.js'))) {
   console.error('Falta dist/. Corré: npx tsc && cp lib/muni-lines.json dist/lib/');
   process.exit(1);
 }
@@ -32,21 +32,7 @@ function load(rel) {
   return mod.default || mod;
 }
 
-const routes = {
-  ping: load('api/urbano/ping.js'),
-  fleet: load('api/urbano/fleet.js'),
-  sesion: load('api/urbano/sesion.js'),
-  lineas: load('api/urbano/lineas.js'),
-  login: load('api/urbano/login.js'),
-  authLogin: load('api/urbano/auth/login.js'),
-  authGoogle: load('api/urbano/auth/google.js'),
-  usuarios: load('api/urbano/usuarios/index.js'),
-  usuarioId: load('api/urbano/usuarios/[id].js'),
-  colectivos: load('api/urbano/colectivos/index.js'),
-  colectivoId: load('api/urbano/colectivos/[id].js'),
-  linea: load('api/urbano/coche/[id]/linea.js'),
-  visibilidad: load('api/urbano/coche/[id]/visibilidad.js'),
-};
+const dispatch = load('lib/routes/dispatch.js');
 
 const PORT = Number(process.env.PORT || 3000);
 
@@ -119,38 +105,8 @@ const server = http.createServer(async (req, res) => {
 
     const body = req.method === 'GET' || req.method === 'HEAD' ? {} : await readBody(req);
 
-    if (path === '/api/urbano/ping') return await callHandler(routes.ping, req, res, query, body);
-    if (path === '/api/urbano/fleet') return await callHandler(routes.fleet, req, res, query, body);
-    if (path === '/api/urbano/sesion') return await callHandler(routes.sesion, req, res, query, body);
-    if (path === '/api/urbano/lineas') return await callHandler(routes.lineas, req, res, query, body);
-    if (path === '/api/urbano/login') return await callHandler(routes.login, req, res, query, body);
-    if (path === '/api/urbano/auth/login') return await callHandler(routes.authLogin, req, res, query, body);
-    if (path === '/api/urbano/auth/google') return await callHandler(routes.authGoogle, req, res, query, body);
-    if (path === '/api/urbano/usuarios') return await callHandler(routes.usuarios, req, res, query, body);
-    if (path === '/api/urbano/colectivos') return await callHandler(routes.colectivos, req, res, query, body);
-
-    const colectivoMatch = path.match(/^\/api\/urbano\/colectivos\/([^/]+)$/);
-    if (colectivoMatch) {
-      query.id = decodeURIComponent(colectivoMatch[1]);
-      return await callHandler(routes.colectivoId, req, res, query, body);
-    }
-
-    const userMatch = path.match(/^\/api\/urbano\/usuarios\/([^/]+)$/);
-    if (userMatch) {
-      query.id = decodeURIComponent(userMatch[1]);
-      return await callHandler(routes.usuarioId, req, res, query, body);
-    }
-
-    const lineaMatch = path.match(/^\/api\/urbano\/coche\/([^/]+)\/linea$/);
-    if (lineaMatch) {
-      query.id = decodeURIComponent(lineaMatch[1]);
-      return await callHandler(routes.linea, req, res, query, body);
-    }
-
-    const visMatch = path.match(/^\/api\/urbano\/coche\/([^/]+)\/visibilidad$/);
-    if (visMatch) {
-      query.id = decodeURIComponent(visMatch[1]);
-      return await callHandler(routes.visibilidad, req, res, query, body);
+    if (path === '/api/urbano' || path.startsWith('/api/urbano/')) {
+      return await callHandler(dispatch, req, res, query, body);
     }
 
     res.writeHead(404, { 'Content-Type': 'application/json' });

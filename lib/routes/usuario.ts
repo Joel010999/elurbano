@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { requireRoles } from '../../../lib/auth';
-import { applyCors, bearerToken } from '../../../lib/cors';
-import { bajaUsuario, editarUsuario } from '../../../lib/users';
+import { requireRoles } from '../auth';
+import { applyCors, bearerToken } from '../cors';
+import { bajaUsuario, editarUsuario } from '../users';
 
 function errorStatus(message: string): number {
   if (message === 'NOT_FOUND') return 404;

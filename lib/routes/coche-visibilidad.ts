@@ -1,9 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { requireRoles } from '../../../../lib/auth';
-import { applyCors, bearerToken } from '../../../../lib/cors';
-import { isLineaMunicipal } from '../../../../lib/muni-lines';
-import { updateCocheLinea } from '../../../../lib/redis';
-import type { LineaPayload } from '../../../../lib/types';
+import { requireRoles } from '../auth';
+import { applyCors, bearerToken } from '../cors';
+import { updateCocheVisibilidad } from '../redis';
+import type { VisibilidadPayload } from '../types';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
@@ -13,29 +12,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const { id } = req.query;
-    const payload = (req.body || {}) as LineaPayload;
+    const payload = (req.body || {}) as VisibilidadPayload;
     const inspectorToken = bearerToken(req.headers.authorization, payload.inspectorToken);
 
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'Coche inválido' });
     }
 
-    if (!payload.linea || !inspectorToken) {
+    if (typeof payload.visibleEnColejuy !== 'boolean' || !inspectorToken) {
       return res.status(400).json({ error: 'Faltan campos' });
-    }
-
-    if (!isLineaMunicipal(String(payload.linea))) {
-      return res.status(400).json({ error: 'Línea fuera del catálogo municipal' });
     }
 
     const gate = await requireRoles(inspectorToken, ['inspector']);
     if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
 
-    await updateCocheLinea(id, String(payload.linea));
+    await updateCocheVisibilidad(id, payload.visibleEnColejuy);
 
-    return res.status(200).json({ success: true, message: 'Línea actualizada' });
+    return res.status(200).json({ success: true, message: 'Visibilidad actualizada' });
   } catch (error) {
-    console.error('Error updating linea:', error);
+    console.error('Error updating visibility:', error);
     if (error instanceof Error && error.message === 'Coche not found') {
       return res.status(404).json({ error: 'Coche no encontrado' });
     }

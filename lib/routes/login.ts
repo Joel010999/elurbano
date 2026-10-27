@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors } from '../../lib/cors';
-import { loginPanel } from '../../lib/users';
+import { applyCors } from '../cors';
+import { loginPanel } from '../users';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;

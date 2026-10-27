@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { requireRoles } from '../../../lib/auth';
-import { applyCors, bearerToken } from '../../../lib/cors';
-import { crearUsuario, listarUsuarios } from '../../../lib/users';
+import { requireRoles } from '../auth';
+import { applyCors, bearerToken } from '../cors';
+import { crearUsuario, listarUsuarios } from '../users';
 
 function errorStatus(message: string): number {
   if (message === 'Identificador en uso' || message === 'Token en uso') return 409;

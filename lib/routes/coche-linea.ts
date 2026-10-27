@@ -1,8 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { requireRoles } from '../../../../lib/auth';
-import { applyCors, bearerToken } from '../../../../lib/cors';
-import { updateCocheVisibilidad } from '../../../../lib/redis';
-import type { VisibilidadPayload } from '../../../../lib/types';
+import { requireRoles } from '../auth';
+import { applyCors, bearerToken } from '../cors';
+import { isLineaMunicipal } from '../muni-lines';
+import { updateCocheLinea } from '../redis';
+import type { LineaPayload } from '../types';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
@@ -12,25 +13,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const { id } = req.query;
-    const payload = (req.body || {}) as VisibilidadPayload;
+    const payload = (req.body || {}) as LineaPayload;
     const inspectorToken = bearerToken(req.headers.authorization, payload.inspectorToken);
 
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ error: 'Coche inválido' });
     }
 
-    if (typeof payload.visibleEnColejuy !== 'boolean' || !inspectorToken) {
+    if (!payload.linea || !inspectorToken) {
       return res.status(400).json({ error: 'Faltan campos' });
+    }
+
+    if (!isLineaMunicipal(String(payload.linea))) {
+      return res.status(400).json({ error: 'Línea fuera del catálogo municipal' });
     }
 
     const gate = await requireRoles(inspectorToken, ['inspector']);
     if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
 
-    await updateCocheVisibilidad(id, payload.visibleEnColejuy);
+    await updateCocheLinea(id, String(payload.linea));
 
-    return res.status(200).json({ success: true, message: 'Visibilidad actualizada' });
+    return res.status(200).json({ success: true, message: 'Línea actualizada' });
   } catch (error) {
-    console.error('Error updating visibility:', error);
+    console.error('Error updating linea:', error);
     if (error instanceof Error && error.message === 'Coche not found') {
       return res.status(404).json({ error: 'Coche no encontrado' });
     }

@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { requireRoles } from '../../lib/auth';
-import { applyCors, bearerToken } from '../../lib/cors';
-import { isLineaMunicipal } from '../../lib/muni-lines';
-import { savePing } from '../../lib/redis';
-import type { PingPayload } from '../../lib/types';
+import { requireRoles } from '../auth';
+import { applyCors, bearerToken } from '../cors';
+import { isLineaMunicipal } from '../muni-lines';
+import { savePing } from '../redis';
+import type { PingPayload } from '../types';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;
