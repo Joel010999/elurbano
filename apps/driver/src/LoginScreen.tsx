@@ -14,6 +14,7 @@ import * as Google from 'expo-auth-session/providers/google';
 import { makeRedirectUri, ResponseType, type AuthSessionResult } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { API_BASE, GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI } from './api';
+import { GoogleLogo } from './GoogleLogo';
 import { BRAND, BRAND_DARK, INK, SIGN } from './theme';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -88,7 +89,7 @@ function BotonGoogle({
         onPress={() => void entrar()}
         style={[styles.google, ocupado && styles.off]}
       >
-        {abriendo ? <ActivityIndicator color={BRAND} /> : <Text style={styles.googleMarca}>G</Text>}
+        {abriendo ? <ActivityIndicator color={BRAND} /> : <GoogleLogo />}
         <Text style={styles.googleTxt}>Entrar con Google</Text>
       </Pressable>
       {__DEV__ ? <Text style={styles.redirect}>Redirect: {redirectUri}</Text> : null}
@@ -140,10 +141,11 @@ export function LoginScreen({
         ) : (
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel="Entrar con Google"
             onPress={() => setLocal('Google no está configurado (EXPO_PUBLIC_GOOGLE_CLIENT_ID).')}
             style={styles.google}
           >
-            <Text style={styles.googleMarca}>G</Text>
+            <GoogleLogo />
             <Text style={styles.googleTxt}>Entrar con Google</Text>
           </Pressable>
         )}
@@ -226,13 +228,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-  },
-  googleMarca: {
-    color: BRAND,
-    fontWeight: '900',
-    fontSize: 20,
-    width: 28,
-    textAlign: 'center',
   },
   googleTxt: { color: INK, fontWeight: '700', fontSize: 16 },
   redirect: { color: '#888', fontSize: 11, marginTop: 6 },

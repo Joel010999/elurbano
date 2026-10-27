@@ -19,6 +19,7 @@ export function NumeroCoche({
       </View>
       <View style={[styles.cuerpo, compacto ? styles.cuerpoCompacto : null]}>
         <View style={[styles.placa, compacto ? styles.placaCompacta : null]}>
+          {compacto ? null : <Text style={styles.placaEtiqueta}>Coche</Text>}
           <Text
             style={[styles.numero, compacto ? styles.numeroCompacto : null]}
             numberOfLines={1}
@@ -92,7 +93,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     minWidth: 96,
     paddingHorizontal: 16,
-    paddingVertical: 4,
+    paddingVertical: 8,
     borderWidth: 2,
     borderColor: '#9aa0a6',
     alignItems: 'center',
@@ -103,6 +104,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 2,
     borderWidth: 1,
+  },
+  placaEtiqueta: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: '#333',
+    textTransform: 'uppercase',
+    marginBottom: 2,
   },
   numero: {
     fontSize: 48,
