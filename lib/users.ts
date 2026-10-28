@@ -12,6 +12,10 @@ export function isRol(value: string): value is Rol {
 const SEED_TOKEN = '1';
 
 function seedUsers(): Usuario[] {
+  // En producción estricta sin demos habilitados, no sembrar usuarios con clave '1'
+  if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEMO_USERS !== 'true' && !process.env.URBANO_CHOFER_TOKEN) {
+    return [];
+  }
   return [
     {
       id: 'usr-chofer-demo',

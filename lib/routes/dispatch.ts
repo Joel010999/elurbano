@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import authGoogle from './auth-google';
 import authLogin from './auth-login';
+import coche from './coche';
 import cocheLinea from './coche-linea';
 import cocheVisibilidad from './coche-visibilidad';
 import colectivo from './colectivo';
@@ -81,6 +82,7 @@ function destino(req: VercelRequest): Handler | null {
 
   if (partes.length === 2 && partes[0] === 'usuarios') return (r, s) => usuario(conId(r, partes[1]), s);
   if (partes.length === 2 && partes[0] === 'colectivos') return (r, s) => colectivo(conId(r, partes[1]), s);
+  if (partes.length === 2 && partes[0] === 'coche') return (r, s) => coche(conId(r, partes[1]), s);
 
   if (partes.length === 3 && partes[0] === 'coche' && partes[2] === 'linea') {
     return (r, s) => cocheLinea(conId(r, partes[1]), s);

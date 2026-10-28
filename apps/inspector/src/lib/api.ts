@@ -1,6 +1,12 @@
-export const API_BASE = (
-  process.env.NEXT_PUBLIC_URBANO_API_BASE || 'https://colejuy-urbano.vercel.app'
-).replace(/\/$/, '');
+export const API_BASE = (() => {
+  if (process.env.NEXT_PUBLIC_URBANO_API_BASE) {
+    return process.env.NEXT_PUBLIC_URBANO_API_BASE.replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined') {
+    return ''; // Mismo dominio (Railway o hosting combinado)
+  }
+  return 'https://colejuy-urbano.vercel.app';
+})();
 
 /** ID de cliente de Google Identity Services. Vacío si falta GOOGLE_CLIENT_ID en el build. */
 export const GOOGLE_CLIENT_ID = (process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '').trim();

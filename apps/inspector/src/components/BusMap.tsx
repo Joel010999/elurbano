@@ -471,6 +471,9 @@ export default function BusMap(props: Props) {
         if (placa.num.textContent !== numero) placa.num.textContent = numero;
         placa.root.dataset.fresh = fresh ? "1" : "0";
         placa.root.dataset.selected = selected ? "1" : "0";
+        placa.root.dataset.hasLine = b.line ? "1" : "0";
+        if (b.color) placa.root.style.setProperty("--placa-bg", b.color);
+        if (b.text) placa.root.style.setProperty("--placa-text", b.text);
         placa.root.setAttribute("aria-label", `Colectivo ${numero}`);
         placa.marker.setLngLat(stepped.shown.at);
         features.push({

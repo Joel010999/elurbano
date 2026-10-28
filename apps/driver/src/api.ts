@@ -150,3 +150,21 @@ export async function listarLineas(): Promise<MuniLine[] | null> {
   });
   return lineas.length > 0 ? lineas : null;
 }
+
+export interface CocheEstado {
+  id: string;
+  linea: string;
+}
+
+export async function obtenerCoche(cocheId: string, token: string): Promise<CocheEstado | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/urbano/coche/${encodeURIComponent(cocheId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { coche?: { id: string; linea: string } };
+    return data.coche ? { id: data.coche.id, linea: data.coche.linea || '' } : null;
+  } catch {
+    return null;
+  }
+}

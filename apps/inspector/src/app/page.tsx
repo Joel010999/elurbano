@@ -143,7 +143,7 @@ export default function InspectorPage() {
       }
     };
     void cargar();
-    const timer = setInterval(cargar, 8000);
+    const timer = setInterval(cargar, 3000); // Actualización cada 3 segundos
     return () => {
       vivo = false;
       clearInterval(timer);
@@ -295,14 +295,29 @@ export default function InspectorPage() {
             <p className="bg-white rounded-lg shadow p-6 text-gray-600">Todavía no hay coches con GPS en este filtro.</p>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {cochesFiltrados.map((coche) => (
+              {cochesFiltrados.map((coche) => {
+                const signalAgeSec = coche.lastPing ? (Date.now() - new Date(coche.lastPing.timestamp).getTime()) / 1000 : Infinity;
+                const tieneSignal = signalAgeSec < 120;
+                return (
                 <article
                   key={coche.id}
-                  className={`bg-white rounded-lg shadow-md p-6 ${seleccionado === coche.id ? 'ring-4 ring-[#e53935]' : ''}`}
+                  className={`bg-white rounded-lg shadow-md p-6 ${seleccionado === coche.id ? 'ring-4 ring-[#e53935]' : ''} ${!tieneSignal ? 'opacity-75' : ''}`}
                 >
                   <div className="flex justify-between items-start mb-4 gap-2">
                     <button type="button" onClick={() => elegir(coche)} className="text-left">
-                      <h3 className="text-2xl font-bold text-gray-800">Coche {coche.id}</h3>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`w-3.5 h-3.5 rounded-full inline-block ${
+                            !tieneSignal
+                              ? 'bg-amber-400 animate-pulse'
+                              : coche.linea
+                              ? 'bg-green-600'
+                              : 'bg-gray-400'
+                          }`}
+                          title={!tieneSignal ? 'Señal atenuada' : coche.linea ? `Línea ${coche.linea}` : 'Sin línea'}
+                        />
+                        <h3 className="text-2xl font-bold text-gray-800">Coche {coche.id}</h3>
+                      </div>
                       <p className="text-gray-600">{coche.chofer || 'Sin chofer'}</p>
                     </button>
                     <span className={`px-3 py-1 rounded text-sm font-medium ${coche.disponible ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
@@ -311,7 +326,18 @@ export default function InspectorPage() {
                   </div>
                   <div className="space-y-3">
                     <div>
-                      <label className="block text-sm text-gray-600 mb-1">Línea</label>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="block text-sm text-gray-600">Línea</label>
+                        {!soloLectura && coche.linea && (
+                          <button
+                            type="button"
+                            onClick={() => void asignarLinea(coche.id, '')}
+                            className="text-xs text-red-600 hover:underline font-medium"
+                          >
+                            Retirar línea
+                          </button>
+                        )}
+                      </div>
                       {soloLectura ? (
                         <p className="font-medium">{coche.linea ? `Línea ${coche.linea}` : 'Sin línea'}</p>
                       ) : (
@@ -320,7 +346,7 @@ export default function InspectorPage() {
                           onChange={(e) => void asignarLinea(coche.id, e.target.value)}
                           className="w-full border border-gray-300 rounded px-3 py-2"
                         >
-                          <option value="" disabled>Elegir línea</option>
+                          <option value="">Sin línea (Retirar)</option>
                           {LINE_NUMBERS.map((l) => (
                             <option key={l} value={l}>Línea {l}</option>
                           ))}
@@ -344,14 +370,18 @@ export default function InspectorPage() {
                     {coche.lastPing ? (
                       <div className="pt-3 border-t border-gray-200">
                         <p className="text-xs text-gray-500 font-mono">{coche.lastPing.lat.toFixed(4)}, {coche.lastPing.lng.toFixed(4)}</p>
-                        <p className="text-xs text-green-700 mt-1">{tiempoDesde(coche.lastPing.timestamp)}</p>
+                        <p className={`text-xs mt-1 ${tieneSignal ? 'text-green-700' : 'text-amber-700 font-medium'}`}>
+                          {tiempoDesde(coche.lastPing.timestamp)}
+                          {!tieneSignal ? ' (señal atenuada)' : ''}
+                        </p>
                       </div>
                     ) : (
                       <p className="pt-3 border-t border-gray-200 text-sm text-red-700">Sin señal GPS</p>
                     )}
                   </div>
                 </article>
-              ))}
+              );
+              })}
             </div>
           )
         )}
@@ -361,20 +391,31 @@ export default function InspectorPage() {
             <div className="h-[600px]">
               <BusMap
                 theme="light"
-                buses={cochesFiltrados.filter((c) => c.lastPing).map((c): MapBus => ({
-                  id: mapBusId(c.id),
-                  line: c.linea || null,
-                  lng: c.lastPing!.lng,
-                  lat: c.lastPing!.lat,
-                  label: numeroCartel(c.id),
-                  color: '#e53935',
-                  text: '#ffffff',
-                  fresh: (Date.now() - new Date(c.lastPing!.timestamp).getTime()) < 120000,
-                  speed: 0,
-                  course: null,
-                  moving: false,
-                  age: (Date.now() - new Date(c.lastPing!.timestamp).getTime()) / 1000,
-                }))}
+                buses={cochesFiltrados.filter((c) => c.lastPing).map((c): MapBus => {
+                  const ageMs = Date.now() - new Date(c.lastPing!.timestamp).getTime();
+                  const fresh = ageMs < 120000;
+                  const hasLine = Boolean(c.linea && LINE_NUMBERS.includes(c.linea));
+                  // Verde con texto negro si tiene línea; Gris con texto blanco si no tiene línea
+                  const color = hasLine ? '#2e7d32' : '#757575';
+                  const text = hasLine ? '#000000' : '#ffffff';
+                  // Si tiene línea muestra el número de línea; si no, el número interno del coche
+                  const label = hasLine ? String(c.linea) : numeroCartel(c.id);
+
+                  return {
+                    id: mapBusId(c.id),
+                    line: c.linea || null,
+                    lng: c.lastPing!.lng,
+                    lat: c.lastPing!.lat,
+                    label,
+                    color,
+                    text,
+                    fresh,
+                    speed: 0,
+                    course: null,
+                    moving: false,
+                    age: ageMs / 1000,
+                  };
+                })}
                 paths={mapPaths}
                 activeDirection={null}
                 color="#e53935"

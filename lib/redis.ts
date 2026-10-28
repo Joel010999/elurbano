@@ -1,4 +1,5 @@
 import type { CocheData } from './types';
+import Redis from 'ioredis';
 
 // In-memory fallback (survives warm Vercel isolates — ok for short GPS tests)
 const g = globalThis as typeof globalThis & { __urbanoStore?: Map<string, Record<string, string>> };
@@ -33,6 +34,45 @@ class InMemoryRedis implements RedisClient {
 
   async del(key: string): Promise<void> {
     inMemoryStore.delete(key);
+  }
+}
+
+class StandardRedis implements RedisClient {
+  private client: Redis;
+
+  constructor(url: string) {
+    this.client = new Redis(url, {
+      maxRetriesPerRequest: 3,
+      lazyConnect: false,
+      retryStrategy(times) {
+        return Math.min(times * 100, 3000);
+      },
+    });
+    this.client.on('error', (err) => {
+      console.error('[Redis error]', err?.message || err);
+    });
+  }
+
+  async hset(key: string, data: Record<string, string>): Promise<void> {
+    await this.client.hset(key, data);
+  }
+
+  async hgetall(key: string): Promise<Record<string, string> | null> {
+    const result = await this.client.hgetall(key);
+    if (!result || Object.keys(result).length === 0) return null;
+    return result;
+  }
+
+  async keys(pattern: string): Promise<string[]> {
+    return await this.client.keys(pattern);
+  }
+
+  async expire(key: string, seconds: number): Promise<void> {
+    await this.client.expire(key, seconds);
+  }
+
+  async del(key: string): Promise<void> {
+    await this.client.del(key);
   }
 }
 
@@ -97,14 +137,18 @@ let redisClient: RedisClient | null = null;
 export function getRedisClient(): RedisClient {
   if (redisClient) return redisClient;
 
+  const redisUrl = process.env.REDIS_URL;
   const upstashUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
   const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 
-  if (upstashUrl && upstashToken) {
-    console.log('Using Upstash Redis');
+  if (redisUrl) {
+    console.log('[Redis] Conectando a Redis estándar (REDIS_URL)...');
+    redisClient = new StandardRedis(redisUrl);
+  } else if (upstashUrl && upstashToken) {
+    console.log('[Redis] Usando Upstash Redis REST');
     redisClient = new UpstashRedis(upstashUrl, upstashToken);
   } else {
-    console.log('Using in-memory Redis (no Upstash configured)');
+    console.log('[Redis] Usando Redis en memoria (sin persistencia externa)');
     redisClient = new InMemoryRedis();
   }
 

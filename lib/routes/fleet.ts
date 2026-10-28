@@ -11,7 +11,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const mode = req.query.mode as string;
+    let mode = req.query.mode as string;
+    if (!mode && (req.query.public === 'true' || req.query.public === '1')) {
+      mode = 'public';
+    }
 
     if (!mode || (mode !== 'inspector' && mode !== 'public')) {
       return res.status(400).json({ error: 'Modo inválido. Usá ?mode=inspector o ?mode=public' });
@@ -41,8 +44,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         chofer: coche.chofer,
       }));
     } else {
+      const now = Date.now();
+      const MAX_AGE_MS = 2 * 60 * 1000; // 2 minutos (señal fresca)
       coches = allCoches
-        .filter((coche) => coche.visibleEnColejuy === 'true')
+        .filter((coche) => {
+          if (coche.visibleEnColejuy !== 'true') return false;
+          if (!coche.linea || coche.linea.trim() === '') return false;
+          const pingTime = new Date(coche.timestamp).getTime();
+          if (isNaN(pingTime) || (now - pingTime) > MAX_AGE_MS) return false;
+          return true;
+        })
         .map((coche) => ({
           id: coche.coche,
           linea: coche.linea,

@@ -27,6 +27,7 @@ import {
   loginClave,
   loginGoogle,
   mensajeError,
+  obtenerCoche,
 } from './src/api';
 import { LoginScreen } from './src/LoginScreen';
 import { NumeroCoche } from './src/NumeroCoche';
@@ -65,7 +66,7 @@ interface Prefs {
 
 const CATALOGO_INICIAL = catalogoLocal as MuniLine[];
 
-function textoLinea(linea: Pick<MuniLine, 'number' | 'name'> | undefined): string {
+function textoLinea(linea: Pick<MuniLine, 'number' | 'name'> | null | undefined): string {
   if (!linea?.number?.trim()) return 'Sin línea';
   const numero = linea.number.trim();
   const nombre = (linea.name || '').trim();
@@ -145,7 +146,7 @@ export default function App() {
   const [cocheId, setCocheId] = useState('');
   const [numero, setNumero] = useState('');
   const [patente, setPatente] = useState('');
-  const [lineaId, setLineaId] = useState(CATALOGO_INICIAL[0]?.id ?? '');
+  const [lineaId, setLineaId] = useState('');
   const [turnoActivo, setTurnoActivo] = useState(false);
   const [disponible, setDisponible] = useState(true);
   const [ultimoPing, setUltimoPing] = useState<string | null>(null);
@@ -162,7 +163,7 @@ export default function App() {
   const iniciandoRef = useRef(false);
   sesionRef.current = sesion;
 
-  const linea = lineas.find((l) => l.id === lineaId) ?? lineas.find((l) => l.number === lineaId) ?? lineas[0];
+  const linea = lineaId ? (lineas.find((l) => l.id === lineaId) ?? lineas.find((l) => l.number === lineaId) ?? null) : null;
   const colectivo = colectivos.find((c) => c.id === cocheId) ?? null;
   const numeroVisible = colectivo?.numero || numero;
   const patenteVisible = colectivo?.patente || patente;
@@ -256,6 +257,28 @@ export default function App() {
       vivo = false;
     };
   }, [sesion, turnoActivo, recargaCoches]);
+
+  // Sincronizar asignación del inspector con la app del chofer (cada 4s durante turno)
+  useEffect(() => {
+    if (!turnoActivo || !cocheId || !sesion) return;
+    let vivo = true;
+    const sincronizar = async () => {
+      const remoto = await obtenerCoche(cocheId, sesion.token);
+      if (!vivo || !remoto) return;
+      const lineaRemota = remoto.linea || '';
+      if (ctxRef.current && ctxRef.current.linea !== lineaRemota) {
+        ctxRef.current = { ...ctxRef.current, linea: lineaRemota, lineaId: lineaRemota };
+        setLineaId(lineaRemota);
+        void AsyncStorage.setItem(TURNO_CONTEXT_KEY, JSON.stringify(ctxRef.current));
+      }
+    };
+    void sincronizar();
+    const interval = setInterval(sincronizar, 4000);
+    return () => {
+      vivo = false;
+      clearInterval(interval);
+    };
+  }, [turnoActivo, cocheId, sesion]);
 
   function pararReloj() {
     gpsGen.current += 1;
@@ -372,10 +395,6 @@ export default function App() {
       Alert.alert('Coche', 'El id de este colectivo no entra en el ping (máximo 32).');
       return;
     }
-    if (!linea) {
-      Alert.alert('Línea', 'Elegí una línea del catálogo.');
-      return;
-    }
     const token = sesionRef.current?.token;
     if (!token) {
       setLoginError('Entrá de nuevo para iniciar el turno.');
@@ -389,20 +408,22 @@ export default function App() {
         Alert.alert('Permiso', 'Hace falta la ubicación con la app abierta.');
         return;
       }
+      const numLinea = linea?.number || '';
+      const idLinea = linea?.id || '';
       const ctx: TurnoContext = {
         cocheId: elegido.id,
         numero: elegido.numero,
         patente: elegido.patente,
         turnoId: `turno_${Date.now()}`,
         choferToken: token,
-        linea: linea.number,
-        lineaId: linea.id,
+        linea: numLinea,
+        lineaId: idLinea,
         disponible,
       };
       ctxRef.current = ctx;
-      await arrancarGps(true);
+      await arrancarGps(Boolean(numLinea));
       await AsyncStorage.setItem(TURNO_CONTEXT_KEY, JSON.stringify(ctx));
-      await guardarPrefs({ cocheId: elegido.id, lineaId: linea.id, disponible });
+      await guardarPrefs({ cocheId: elegido.id, lineaId: idLinea, disponible });
       setNumero(elegido.numero);
       setPatente(elegido.patente);
       setTurnoActivo(true);
@@ -588,6 +609,19 @@ export default function App() {
       <Modal visible={elegirLinea} animationType="slide" onRequestClose={() => setElegirLinea(false)}>
         <View style={styles.modal}>
           <Text style={styles.title}>Línea del turno</Text>
+          <Pressable
+            onPress={() => {
+              setLineaId('');
+              void guardarPrefs({ lineaId: '' });
+              setElegirLinea(false);
+            }}
+            accessibilityRole="button"
+            style={[styles.lineaItem, !lineaId && styles.lineaItemOn]}
+          >
+            <Text style={[styles.lineaItemTxt, !lineaId && styles.lineaItemTxtOn]}>
+              Sin línea (asignar por inspector)
+            </Text>
+          </Pressable>
           <FlatList
             data={lineas}
             keyExtractor={(item) => item.id}

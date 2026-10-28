@@ -5,10 +5,25 @@
  * Tests all endpoints with sample data
  */
 
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+for (const name of ['.env.local', '.env']) {
+  const p = resolve(root, name);
+  if (existsSync(p)) {
+    for (const line of readFileSync(p, 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^([^#=]+)=(.*)$/);
+      if (m && !process.env[m[1].trim()]) process.env[m[1].trim()] = m[2].trim();
+    }
+  }
+}
+
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
-const CHOFER_TOKEN = process.env.URBANO_CHOFER_TOKEN || 'chofer-token-example';
-const INSPECTOR_TOKEN = process.env.URBANO_INSPECTOR_TOKEN || 'inspector-token-example';
-const VEEDOR_TOKEN = process.env.URBANO_VEEDOR_TOKEN || 'veedor-token-example';
+const CHOFER_TOKEN = process.env.URBANO_CHOFER_TOKEN || 'chofer-demo:1';
+const INSPECTOR_TOKEN = process.env.URBANO_INSPECTOR_TOKEN || 'inspector-demo:1';
+const VEEDOR_TOKEN = process.env.URBANO_VEEDOR_TOKEN || 'veedor-demo:1';
 
 // ANSI colors
 const GREEN = '\x1b[32m';
@@ -331,14 +346,14 @@ async function runTests() {
 
   if (passed === total) {
     console.log(`${GREEN}All tests passed!${RESET}\n`);
-    process.exit(0);
+    process.exitCode = 0;
   } else {
     console.log(`${RED}Some tests failed${RESET}\n`);
-    process.exit(1);
+    process.exitCode = 1;
   }
 }
 
 runTests().catch(error => {
   console.error(`${RED}Fatal error:${RESET}`, error);
-  process.exit(1);
+  process.exitCode = 1;
 });
