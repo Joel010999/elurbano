@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "El Urbano - Chofer",
+    "name": "El Urbano Chofer",
     "slug": "urbano-driver",
     "scheme": "urbano-driver",
     "version": "1.0.0",
@@ -18,26 +18,33 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "El Urbano usa tu ubicación en primer plano mientras el turno está abierto"
+        "NSLocationWhenInUseUsageDescription": "El Urbano usa tu ubicación en primer plano mientras el turno está abierto",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "El Urbano transmite la ubicación del colectivo durante la jornada laboral."
       }
     },
     "android": {
+      "package": "com.joel.elurbano.chofer",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#e53935"
       },
       "permissions": [
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
       ]
     },
     "plugins": [
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "El Urbano usa tu ubicación en primer plano mientras el turno está abierto.",
-          "isAndroidBackgroundLocationEnabled": false,
-          "isAndroidForegroundServiceEnabled": false
+          "locationAlwaysAndWhenInUsePermission": "El Urbano necesita acceder a la ubicación en segundo plano para transmitir el GPS del colectivo durante la jornada laboral.",
+          "locationAlwaysPermission": "El Urbano necesita acceder a la ubicación en segundo plano para transmitir el GPS del colectivo durante la jornada laboral.",
+          "locationWhenInUsePermission": "El Urbano necesita tu ubicación para transmitir el recorrido en tiempo real.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ]
     ]

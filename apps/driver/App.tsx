@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import catalogoLocal from './data/muni-lines.json';
 import {
@@ -39,6 +40,7 @@ const PREFS_KEY = 'urbano:prefs';
 const PING_QUEUE_KEY = 'urbano:ping_queue';
 const GPS_MS = 5000;
 const COCHE_ID = /^[A-Za-z0-9_-]{1,32}$/;
+const LOCATION_TASK_NAME = 'urbano-driver-location-task';
 
 interface PingData {
   lat: number;
@@ -133,6 +135,111 @@ async function encolarPingFallido(ping: PingData) {
   }
 }
 
+async function reintentarPingsPendientes(token: string, cocheId: string, turnoId: string) {
+  try {
+    const queueStr = await AsyncStorage.getItem(PING_QUEUE_KEY);
+    if (!queueStr) return;
+    const queue = JSON.parse(queueStr) as (PingData & { queuedAt?: number })[];
+    if (!Array.isArray(queue) || queue.length === 0) return;
+
+    const ahora = Date.now();
+    // Descartar pings de más de 30 minutos (posiciones obsoletas)
+    const validos = queue.filter((p) => !p.queuedAt || ahora - p.queuedAt < 30 * 60 * 1000);
+    if (validos.length === 0) {
+      await AsyncStorage.removeItem(PING_QUEUE_KEY);
+      return;
+    }
+
+    const lote = validos.slice(-5);
+    const restantes = validos.slice(0, -5);
+    const noEnviados: typeof queue = [];
+
+    for (const p of lote) {
+      try {
+        const resp = await fetch(`${API_BASE}/api/urbano/ping`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            cocheId,
+            turnoId,
+            lat: p.lat,
+            lng: p.lng,
+            timestamp: p.timestamp,
+            accuracy: p.accuracy,
+            disponible: true,
+          }),
+        });
+        if (!resp.ok) {
+          noEnviados.push(p);
+        }
+      } catch {
+        noEnviados.push(p);
+      }
+    }
+
+    const guardar = [...restantes, ...noEnviados];
+    if (guardar.length > 0) {
+      await AsyncStorage.setItem(PING_QUEUE_KEY, JSON.stringify(guardar.slice(-50)));
+    } else {
+      await AsyncStorage.removeItem(PING_QUEUE_KEY);
+    }
+  } catch (err) {
+    console.warn('Error reintentando pings:', err);
+  }
+}
+
+TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
+  if (error) {
+    console.warn('[GPS Background Task] Error:', error.message);
+    return;
+  }
+  if (!data) return;
+  const { locations } = data as { locations: Location.LocationObject[] };
+  if (!locations || locations.length === 0) return;
+
+  const loc = locations[locations.length - 1];
+  try {
+    const rawCtx = await AsyncStorage.getItem(TURNO_CONTEXT_KEY);
+    const ctx = aTurno(rawCtx);
+    if (!ctx) return;
+
+    const gps: PingData = {
+      lat: loc.coords.latitude,
+      lng: loc.coords.longitude,
+      timestamp: new Date(loc.timestamp).toISOString(),
+      accuracy: loc.coords.accuracy || 0,
+    };
+
+    const resp = await fetch(`${API_BASE}/api/urbano/ping`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ctx.choferToken}`,
+      },
+      body: JSON.stringify({
+        cocheId: ctx.cocheId,
+        turnoId: ctx.turnoId,
+        lat: gps.lat,
+        lng: gps.lng,
+        timestamp: gps.timestamp,
+        accuracy: gps.accuracy,
+        disponible: ctx.disponible,
+      }),
+    });
+
+    if (resp.ok) {
+      await reintentarPingsPendientes(ctx.choferToken, ctx.cocheId, ctx.turnoId);
+    } else {
+      await encolarPingFallido(gps);
+    }
+  } catch (err) {
+    console.warn('[GPS Background Task] Falló envío:', err);
+  }
+});
+
 export default function App() {
   const [listo, setListo] = useState(false);
   const [sesion, setSesion] = useState<Sesion | null>(null);
@@ -221,7 +328,7 @@ export default function App() {
     })();
     return () => {
       vivo = false;
-      pararReloj();
+      void detenerGps();
     };
     // El turno se retoma una sola vez al abrir la app.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -288,6 +395,19 @@ export default function App() {
     timerRef.current = null;
   }
 
+  async function detenerGps() {
+    pararReloj();
+    try {
+      const isStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+      if (isStarted) {
+        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      }
+    } catch (err) {
+      console.warn('Error deteniendo tarea en segundo plano:', err);
+    }
+    setGpsActivo(false);
+  }
+
   async function guardarPrefs(parcial: Prefs) {
     const prev = await AsyncStorage.getItem(PREFS_KEY);
     const base = prev ? JSON.parse(prev) : {};
@@ -336,6 +456,7 @@ export default function App() {
       }
       setUltimoPing(new Date().toLocaleTimeString('es-AR'));
       setError(null);
+      void reintentarPingsPendientes(ctx.choferToken, ctx.cocheId, ctx.turnoId);
     } catch (err) {
       setError(mensajeError(err, 'No se pudo enviar el GPS'));
       await encolarPingFallido(gps);
@@ -343,11 +464,44 @@ export default function App() {
   }
 
   async function arrancarGps(actualizarLinea: boolean) {
-    pararReloj();
+    await detenerGps();
     const token = gpsGen.current;
-    const primer = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    if (gpsGen.current !== token) return;
-    await enviar(primer, actualizarLinea);
+
+    try {
+      const primer = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      if (gpsGen.current === token) {
+        await enviar(primer, actualizarLinea);
+      }
+    } catch (err) {
+      console.warn('No se pudo obtener primera posición GPS:', err);
+    }
+
+    try {
+      const isRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+      if (isRegistered) {
+        const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK_NAME);
+        if (alreadyStarted) {
+          await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+        }
+        await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+          accuracy: Location.Accuracy.High,
+          timeInterval: GPS_MS,
+          distanceInterval: 5,
+          deferredUpdatesInterval: GPS_MS,
+          deferredUpdatesDistance: 5,
+          foregroundService: {
+            notificationTitle: 'El Urbano Chofer',
+            notificationBody: 'Transmitiendo recorrido GPS en tiempo real...',
+            notificationColor: '#e53935',
+          },
+          showsBackgroundLocationIndicator: true,
+          pausesUpdatesAutomatically: false,
+        });
+      }
+    } catch (bgErr) {
+      console.warn('No se pudo iniciar background location task:', bgErr);
+    }
+
     if (gpsGen.current !== token) return;
     const sub = await Location.watchPositionAsync(
       {
@@ -403,10 +557,24 @@ export default function App() {
     }
     iniciandoRef.current = true;
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permiso', 'Hace falta la ubicación con la app abierta.');
+      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+      if (fgStatus !== 'granted') {
+        Alert.alert('Permiso de GPS', 'Hace falta la ubicación con la app abierta para transmitir el recorrido.');
         return;
+      }
+      if (Platform.OS === 'android') {
+        try {
+          const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+          if (bgStatus !== 'granted') {
+            Alert.alert(
+              'Ubicación en segundo plano',
+              'Para que el GPS no se corte con la pantalla bloqueada o al cambiar de app, seleccioná "Permitir siempre" en los ajustes de ubicación.',
+              [{ text: 'Entendido' }]
+            );
+          }
+        } catch (bgErr) {
+          console.warn('Error solicitando permiso de fondo:', bgErr);
+        }
       }
       const numLinea = linea?.number || '';
       const idLinea = linea?.id || '';
@@ -431,7 +599,7 @@ export default function App() {
       setError(null);
     } catch (err) {
       console.error(err);
-      pararReloj();
+      await detenerGps();
       ctxRef.current = null;
       await AsyncStorage.removeItem(TURNO_CONTEXT_KEY);
       setGpsActivo(false);
@@ -442,7 +610,7 @@ export default function App() {
   }
 
   async function finalizarTurno() {
-    pararReloj();
+    await detenerGps();
     ctxRef.current = null;
     await AsyncStorage.removeItem(TURNO_CONTEXT_KEY);
     setTurnoActivo(false);
@@ -532,7 +700,7 @@ export default function App() {
           </View>
           <View style={styles.statusCard}>
             <Text style={gpsActivo ? styles.statusActive : styles.statusInactive}>
-              {gpsActivo ? 'GPS en primer plano' : 'GPS inactivo'}
+              {gpsActivo ? 'GPS en segundo plano activo' : 'GPS inactivo'}
             </Text>
             {ultimoPing ? <Text style={styles.statusDetail}>Último ping: {ultimoPing}</Text> : null}
             {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -541,7 +709,7 @@ export default function App() {
             <Text style={styles.accionTxt}>Finalizar turno</Text>
           </Pressable>
           <Text style={styles.footerText}>
-            El GPS sale cada 5 segundos mientras la app está abierta. En Expo Go no uses el rastreo de fondo.
+            GPS activo con notificación persistente. En Android, desactivá el ahorro de batería para evitar que el sistema suspenda el servicio.
           </Text>
         </ScrollView>
       ) : (

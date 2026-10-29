@@ -1,7 +1,7 @@
 export const API_BASE = (
   process.env.EXPO_PUBLIC_API_URL ||
   process.env.EXPO_PUBLIC_URBANO_API_BASE ||
-  'https://colejuy-urbano.vercel.app'
+  'https://elurbano-production.up.railway.app'
 ).replace(/\/$/, '');
 
 export const GOOGLE_CLIENT_ID = (process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '').trim();
