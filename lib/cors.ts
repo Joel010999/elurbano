@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from './types';
 
 export function applyCors(req: VercelRequest, res: VercelResponse): boolean {
   res.setHeader('Access-Control-Allow-Origin', '*');

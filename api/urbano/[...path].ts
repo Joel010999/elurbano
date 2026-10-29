@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '../../lib/types';
 import dispatch from '../../lib/routes/dispatch';
 
 export default function handler(req: VercelRequest, res: VercelResponse) {

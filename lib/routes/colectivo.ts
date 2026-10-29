@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '../types';
 import { applyCors } from '../cors';
 import { ErrorApi, usuarioDesdeBearer } from '../auth';
 import { actualizarColectivo, borrarColectivo, puedeEscribirColectivos } from '../colectivos';

@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '../types';
 import { requireRoles } from '../auth';
 import { applyCors, bearerToken } from '../cors';
 import { getCoche } from '../redis';

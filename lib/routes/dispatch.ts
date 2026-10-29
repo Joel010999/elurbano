@@ -1,4 +1,4 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelRequest, VercelResponse } from '../types';
 import authGoogle from './auth-google';
 import authLogin from './auth-login';
 import coche from './coche';
