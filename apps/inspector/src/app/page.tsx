@@ -221,11 +221,13 @@ export default function InspectorPage() {
       <Header
         titulo="El Urbano"
         subtitulo={sesion.rol === 'veedor' ? 'Veedor · solo lectura' : 'Inspector'}
-        extra={
-          <button type="button" onClick={salir} className="text-sm underline">
-            Salir · {sesion.identificador}
-          </button>
-        }
+        identificador={sesion.identificador}
+        onSalir={salir}
+        nav={{
+          vista,
+          setVista,
+          esInspector: sesion.rol === 'inspector',
+        }}
       />
       <main className="max-w-7xl mx-auto px-4 py-6">
         {sesion.rol === 'veedor' && (
@@ -235,11 +237,11 @@ export default function InspectorPage() {
         )}
 
         <div className="bg-white rounded-lg shadow p-4 mb-6 flex flex-wrap gap-4 items-center justify-between border border-[#e53935]/40">
-          <div className="text-sm text-gray-600">
+          <div className="text-sm text-gray-600 font-medium">
             {cochesFiltrados.length} de {coches.length} coches · {visibles.size} de {LINE_NUMBERS.length} líneas
             {apiError ? <span className="text-red-700"> · {apiError}</span> : <span className="text-green-700"> · en vivo</span>}
           </div>
-          <div className="flex gap-2">
+          <div className="hidden md:flex gap-2">
             <Tab on={vista === 'lista'} onClick={() => setVista('lista')}>Lista</Tab>
             <Tab on={vista === 'mapa'} onClick={() => setVista('mapa')}>Mapa</Tab>
             <Tab on={vista === 'colectivos'} onClick={() => setVista('colectivos')}>Colectivos</Tab>
@@ -474,15 +476,233 @@ function Marco({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Header({ titulo, subtitulo, extra }: { titulo: string; subtitulo: string; extra?: React.ReactNode }) {
+interface HeaderProps {
+  titulo: string;
+  subtitulo?: string;
+  extra?: React.ReactNode;
+  onSalir?: () => void;
+  identificador?: string;
+  nav?: {
+    vista: 'lista' | 'mapa' | 'colectivos' | 'usuarios';
+    setVista: (v: 'lista' | 'mapa' | 'colectivos' | 'usuarios') => void;
+    esInspector: boolean;
+  };
+}
+
+function LogOutIcon({ className = 'w-[22px] h-[22px]' }: { className?: string }) {
   return (
-    <header className="sticky top-0 z-40 bg-[#e53935] text-white shadow-lg">
-      <div className="max-w-7xl mx-auto px-4 py-5 flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">{titulo}</h1>
-          <p className="text-red-100 mt-1">{subtitulo}</p>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" x2="9" y1="12" y2="12" />
+    </svg>
+  );
+}
+
+function ListIcon({ className = 'w-5 h-5' }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <line x1="8" x2="21" y1="6" y2="6" />
+      <line x1="8" x2="21" y1="12" y2="12" />
+      <line x1="8" x2="21" y1="18" y2="18" />
+      <line x1="3" x2="3.01" y1="6" y2="6" />
+      <line x1="3" x2="3.01" y1="12" y2="12" />
+      <line x1="3" x2="3.01" y1="18" y2="18" />
+    </svg>
+  );
+}
+
+function MapPinIcon({ className = 'w-5 h-5' }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  );
+}
+
+function BusFrontIcon({ className = 'w-5 h-5' }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M4 6 2 7" />
+      <path d="M10 6h4" />
+      <path d="m22 7-2-1" />
+      <rect width="16" height="16" x="4" y="3" rx="2" />
+      <path d="M4 11h16" />
+      <path d="M8 15h.01" />
+      <path d="M16 15h.01" />
+      <path d="M6 19v2" />
+      <path d="M18 19v2" />
+    </svg>
+  );
+}
+
+function UserRoundIcon({ className = 'w-5 h-5' }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="8" r="5" />
+      <path d="M20 21a8 8 0 0 0-16 0" />
+    </svg>
+  );
+}
+
+function NavMobileButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={`min-h-[48px] py-2 px-1 rounded-[10px] flex flex-col items-center justify-center gap-1 transition-all select-none ${
+        active
+          ? 'bg-[#8e1515] ring-1 ring-white/25 shadow-inner'
+          : 'bg-[#c62828] hover:bg-[#ba2220] active:bg-[#a51515]'
+      }`}
+    >
+      <div className="text-white flex items-center justify-center leading-none">{icon}</div>
+      <span className="text-[11px] sm:text-xs text-white font-medium tracking-tight leading-tight">
+        {label}
+      </span>
+    </button>
+  );
+}
+
+function Header({ titulo, subtitulo, extra, onSalir, identificador, nav }: HeaderProps) {
+  return (
+    <header className="sticky top-0 z-40 bg-[#e53935] text-white shadow-lg pt-[env(safe-area-inset-top,0px)]">
+      <div className="max-w-7xl mx-auto px-4 pt-3 pb-3 md:py-5">
+        {/* Fila 1: Título a la izquierda, salida a la derecha */}
+        <div className="flex items-center justify-between gap-3 min-h-[44px]">
+          <div className="flex flex-col justify-center">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white leading-none">
+              {titulo}
+            </h1>
+            {subtitulo && (
+              <p className={`text-red-100 mt-1 text-sm font-normal ${nav ? 'hidden md:block' : ''}`}>
+                {subtitulo}
+              </p>
+            )}
+          </div>
+
+          {onSalir ? (
+            <div className="flex items-center">
+              {/* Móvil: botón ícono blanco LogOut con área táctil mínima de 44x44px */}
+              <button
+                type="button"
+                onClick={onSalir}
+                aria-label="Cerrar sesión"
+                title="Cerrar sesión"
+                className="md:hidden w-11 h-11 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-white bg-transparent hover:bg-white/10 active:bg-white/20 transition-colors focus:outline-none focus:ring-2 focus:ring-white/50"
+              >
+                <LogOutIcon className="w-[22px] h-[22px]" />
+              </button>
+
+              {/* Escritorio: enlace clásico de salida con nombre de usuario */}
+              <button
+                type="button"
+                onClick={onSalir}
+                className="hidden md:inline-block text-sm underline hover:text-red-100 transition-colors"
+              >
+                Salir · {identificador}
+              </button>
+            </div>
+          ) : (
+            extra
+          )}
         </div>
-        {extra}
+
+        {/* Fila 2: Navegación móvil integrada en la cabecera roja */}
+        {nav && (
+          <nav aria-label="Navegación principal" className="md:hidden mt-3">
+            <div className={`grid ${nav.esInspector ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
+              <NavMobileButton
+                active={nav.vista === 'lista'}
+                onClick={() => nav.setVista('lista')}
+                icon={<ListIcon className="w-5 h-5 text-white" />}
+                label="Lista"
+              />
+              <NavMobileButton
+                active={nav.vista === 'mapa'}
+                onClick={() => nav.setVista('mapa')}
+                icon={<MapPinIcon className="w-5 h-5 text-white" />}
+                label="Mapa"
+              />
+              <NavMobileButton
+                active={nav.vista === 'colectivos'}
+                onClick={() => nav.setVista('colectivos')}
+                icon={<BusFrontIcon className="w-5 h-5 text-white" />}
+                label="Colectivos"
+              />
+              {nav.esInspector && (
+                <NavMobileButton
+                  active={nav.vista === 'usuarios'}
+                  onClick={() => nav.setVista('usuarios')}
+                  icon={<UserRoundIcon className="w-5 h-5 text-white" />}
+                  label="Usuarios"
+                />
+              )}
+            </div>
+          </nav>
+        )}
       </div>
     </header>
   );
