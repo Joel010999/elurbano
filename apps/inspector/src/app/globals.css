@@ -90,6 +90,15 @@ body {
   border-top-style: dashed;
 }
 
+/* Ocultar barra de scroll en navegadores WebKit, Firefox e IE/Edge */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Cartel del colectivo: marquesina blanca "EL URBANO" y número grande sobre rojo. */
 .urbano-placa {
   display: flex;

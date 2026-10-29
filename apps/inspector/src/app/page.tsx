@@ -217,7 +217,7 @@ export default function InspectorPage() {
   }
 
   return (
-    <Marco>
+    <Marco isFullMap={vista === 'mapa'}>
       <Header
         titulo="El Urbano"
         subtitulo={sesion.rol === 'veedor' ? 'Veedor · solo lectura' : 'Inspector'}
@@ -229,14 +229,14 @@ export default function InspectorPage() {
           esInspector: sesion.rol === 'inspector',
         }}
       />
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className={`max-w-7xl mx-auto ${vista === 'mapa' ? 'p-0 flex-1 w-full min-h-0 relative flex flex-col md:px-4 md:py-6 md:block' : 'px-4 py-6'}`}>
         {sesion.rol === 'veedor' && (
-          <p className="mb-4 rounded border-2 border-[#e53935] bg-white px-4 py-3 text-sm">
+          <p className={`mb-4 rounded border-2 border-[#e53935] bg-white px-4 py-3 text-sm ${vista === 'mapa' ? 'hidden md:block' : ''}`}>
             Veedor municipal. Podés mirar la flota y el padrón de colectivos. No asignás líneas, no cambiás visibilidad y no das de alta, editás ni borrás.
           </p>
         )}
 
-        <div className="bg-white rounded-lg shadow p-4 mb-6 flex flex-wrap gap-4 items-center justify-between border border-[#e53935]/40">
+        <div className={`bg-white rounded-lg shadow p-4 mb-6 flex-wrap gap-4 items-center justify-between border border-[#e53935]/40 ${vista === 'mapa' ? 'hidden md:flex' : 'flex'}`}>
           <div className="text-sm text-gray-600 font-medium">
             {cochesFiltrados.length} de {coches.length} coches · {visibles.size} de {LINE_NUMBERS.length} líneas
             {apiError ? <span className="text-red-700"> · {apiError}</span> : <span className="text-green-700"> · en vivo</span>}
@@ -251,7 +251,7 @@ export default function InspectorPage() {
           </div>
         </div>
 
-        {(vista === 'lista' || vista === 'mapa') && <div className="bg-white rounded-lg shadow p-4 mb-6">
+        {(vista === 'lista' || vista === 'mapa') && <div className={`bg-white rounded-lg shadow p-4 mb-6 ${vista === 'mapa' ? 'hidden md:block' : 'block'}`}>
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-lg">Líneas</h2>
             <div className="flex gap-2">
@@ -389,8 +389,104 @@ export default function InspectorPage() {
         )}
 
         {vista === 'mapa' && (
-          <div className="bg-white rounded-lg shadow-md overflow-hidden border-4 border-[#e53935]">
-            <div className="h-[600px]">
+          <div className="flex-1 w-full h-full relative overflow-hidden md:flex-none md:bg-white md:rounded-lg md:shadow-md md:border-4 md:border-[#e53935]">
+            {/* 1. Indicador flotante en vivo sobre el mapa (arriba a la derecha) */}
+            <div className="md:hidden absolute top-3 right-3 z-30 pointer-events-auto">
+              <div className="bg-white/95 backdrop-blur-sm px-3 py-1.5 rounded-full shadow-md border border-gray-100 flex items-center gap-1.5 text-xs font-medium text-gray-700">
+                <span className="hidden sm:inline">
+                  {cochesFiltrados.length} de {coches.length} coches · {visibles.size} de {LINE_NUMBERS.length} líneas
+                </span>
+                <span className="sm:hidden">
+                  {cochesFiltrados.length}/{coches.length} coches · {visibles.size}/{LINE_NUMBERS.length} lín.
+                </span>
+                {apiError ? (
+                  <span className="text-red-700 font-semibold"> · {apiError}</span>
+                ) : (
+                  <span className="text-green-700 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-600 animate-pulse" />
+                    en vivo
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 2. Filtros de líneas flotantes a la izquierda (círculos individuales) */}
+            <div
+              className="md:hidden absolute top-3 left-3 bottom-3 z-30 flex flex-col pointer-events-none"
+              style={{ maxHeight: 'calc(100% - 24px)' }}
+            >
+              {/* Controles Todas / Ninguna */}
+              <div className="flex gap-1.5 mb-2 pointer-events-auto shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setVisibles(new Set(LINE_NUMBERS))}
+                  className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-white/95 text-gray-800 shadow-md border border-gray-100 active:scale-95 transition-transform"
+                >
+                  Todas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVisibles(new Set())}
+                  className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-white/95 text-gray-800 shadow-md border border-gray-100 active:scale-95 transition-transform"
+                >
+                  Ninguna
+                </button>
+              </div>
+
+              {/* Columna con scroll independiente */}
+              <div
+                className="flex flex-col gap-2 overflow-y-auto overscroll-contain pointer-events-auto no-scrollbar py-1 pr-1.5"
+                style={{ touchAction: 'pan-y' }}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchMove={(e) => e.stopPropagation()}
+                onWheel={(e) => e.stopPropagation()}
+              >
+                {/* Botón circular Sin Línea */}
+                <button
+                  type="button"
+                  aria-pressed={verSinLinea}
+                  onClick={() => setVerSinLinea((v) => !v)}
+                  className={`w-[52px] h-[52px] min-w-[52px] min-h-[52px] rounded-full flex flex-col items-center justify-center transition-all select-none active:scale-95 ${
+                    verSinLinea
+                      ? 'bg-[#e53935] text-white shadow-[0_2px_8px_rgba(0,0,0,0.3)] ring-2 ring-white/90'
+                      : 'bg-[#b71c1c]/40 text-white/50 shadow-sm opacity-40 ring-1 ring-white/20'
+                  }`}
+                  title={`Sin línea (${coches.filter(sinLinea).length})`}
+                >
+                  <span className="font-extrabold text-xs leading-none tracking-tight">Sin</span>
+                  <span className="text-[10px] leading-tight mt-0.5 font-medium">({coches.filter(sinLinea).length})</span>
+                </button>
+
+                {/* Botones circulares para cada línea */}
+                {LINE_NUMBERS.map((n) => {
+                  const on = visibles.has(n);
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      aria-pressed={on}
+                      title={lineNames(n)}
+                      onClick={() => toggleLinea(n)}
+                      className={`w-[52px] h-[52px] min-w-[52px] min-h-[52px] rounded-full relative flex flex-col items-center justify-center transition-all select-none active:scale-95 ${
+                        on
+                          ? 'bg-[#e53935] text-white shadow-[0_2px_8px_rgba(0,0,0,0.3)] ring-2 ring-white/90'
+                          : 'bg-[#b71c1c]/40 text-white/50 shadow-sm opacity-40 ring-1 ring-white/20'
+                      }`}
+                    >
+                      <span
+                        className="absolute top-1 right-1.5 w-2 h-2 rounded-full border border-white shadow-sm"
+                        style={{ background: on ? lineColor(n) : '#9e9e9e' }}
+                      />
+                      <span className="font-extrabold text-[15px] leading-none tracking-tight">{n}</span>
+                      <span className="text-[10px] leading-tight mt-0.5 font-medium">({cochesPorLinea(n)})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Contenedor del mapa: 100% de alto y ancho en móvil, 600px en escritorio */}
+            <div className="w-full h-full md:h-[600px]">
               <BusMap
                 theme="light"
                 buses={cochesFiltrados.filter((c) => c.lastPing).map((c): MapBus => {
@@ -446,7 +542,7 @@ export default function InspectorPage() {
           </div>
         )}
 
-        <div className="mt-6 bg-white rounded-lg shadow-md p-6">
+        <div className={`mt-6 bg-white rounded-lg shadow-md p-6 ${vista === 'mapa' ? 'hidden md:block' : 'block'}`}>
           <div className="grid grid-cols-3 gap-6 text-center">
             <div>
               <p className="text-3xl font-bold text-urbano-red">{coches.filter((c) => c.lastPing).length}</p>
@@ -467,9 +563,9 @@ export default function InspectorPage() {
   );
 }
 
-function Marco({ children }: { children: React.ReactNode }) {
+function Marco({ children, isFullMap = false }: { children: React.ReactNode; isFullMap?: boolean }) {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className={`bg-gray-50 ${isFullMap ? 'h-[100dvh] flex flex-col overflow-hidden md:h-auto md:min-h-screen md:block md:overflow-visible' : 'min-h-screen'}`}>
       <div className="pointer-events-none fixed inset-0 z-50 border-[6px] border-[#e53935]" aria-hidden="true" />
       {children}
     </div>
