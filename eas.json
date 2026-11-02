@@ -8,10 +8,6 @@
       "developmentClient": false,
       "android": {
         "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://elurbano-production.up.railway.app",
-        "EXPO_PUBLIC_URBANO_API_BASE": "https://elurbano-production.up.railway.app"
       }
     },
     "production": {
@@ -19,10 +15,6 @@
       "developmentClient": false,
       "android": {
         "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://elurbano-production.up.railway.app",
-        "EXPO_PUBLIC_URBANO_API_BASE": "https://elurbano-production.up.railway.app"
       }
     }
   }
